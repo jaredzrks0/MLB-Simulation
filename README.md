@@ -1,1 +1,2 @@
-This is a project to simulate MLB Games. Currently,
+This is a project to simulate MLB Games. Currently, the Pitch and Weather collection file pulls pitch by pitch MLB data and weather data for relevant games for use in the Building Datasets file. 
+The Building Datasets file is currently being updated, but cleans data from the pitch/weather collection before calculating weather and park factors for each play/game and neutralizing the dataset for model testing in the Model Building file.
