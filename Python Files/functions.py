@@ -2,7 +2,11 @@ import constants
 
 import pandas as pd
 import numpy as np
+from scipy import stats
 import sys
+
+from sklearn.linear_model import LinearRegression
+
 from IPython.display import clear_output
 
 # Change the path so that we can import the local cloud functions stored in a different directory. THE PATH IS DIFFERENT ON MAC AND PI, SO USE TRY EXCEPT FOR BOTH
@@ -429,7 +433,7 @@ def clean_raw_pitches(raw_pitches_df: pd.DataFrame) -> pd.DataFrame:
     weather_dictionary_holder = {}
 
     for year in years:
-        yearly_weather_df = CloudHelper().download_from_cloud("proreference_weather_data/weather_data_{}".format(year))
+        yearly_weather_df = CloudHelper().download_from_cloud("proreference_weather_data/weather_data_{}".format(year))# if this fails we might not have that years weather in cloud storage
         weather_dictionary_holder[year] = yearly_weather_df
     total_weather_df = pd.concat([df for df in weather_dictionary_holder.values()])
     
@@ -461,7 +465,7 @@ def clean_raw_pitches(raw_pitches_df: pd.DataFrame) -> pd.DataFrame:
 #####################################################################################
 
 ######################################################################################
-# Build a DataFrame for Weather Regression
+# Build a DataFrame for and then run Weather Regression, returning coefficients
 ######################################################################################
 
 def insert_game_play_shares(all_plays_by_pitbat_combo: dict) -> dict:
@@ -496,6 +500,7 @@ def insert_game_play_shares(all_plays_by_pitbat_combo: dict) -> dict:
             # Calculate the total number of the play in the specific game by rolling 'type counter' within each play type and finding the max
             game_df["type_counter"] = game_df[["play_type", "game_pk", "type_counter"]].groupby(by = "play_type").cumsum().type_counter
             game_df = game_df[["play_type", "game_pk", "type_counter"]].groupby(by = "play_type").max()
+            
             # Calculate the play share for each play type within the specific game by dividing the rolled counter by the total plays in the game
             game_df["play_share"]  = game_df.type_counter/total_plays 
 
@@ -508,7 +513,7 @@ def insert_game_play_shares(all_plays_by_pitbat_combo: dict) -> dict:
             n+= 1
         clear_output(wait = True)
     
-
+    plays_by_pitbat_combo_with_play_shares = {}
     # Add a column in the all plays dfs that is the game play share for the specific game and play type of each play
     for pitbat_combo in constants.HAND_COMBOS:
         print("Inserting Play Shares by Play Type from Each Game To the All Pitches Data Set. There are {} Pitbat Combos Remaining".format(len(constants.HAND_COMBOS) - constants.HAND_COMBOS.index(pitbat_combo)))
@@ -518,8 +523,10 @@ def insert_game_play_shares(all_plays_by_pitbat_combo: dict) -> dict:
         # game_play_shares dict which throws and error when pulling the play type from the dictionary
         game_play_df = all_plays_by_pitbat_combo[pitbat_combo].copy()
         game_play_df["game_play_share"] = game_play_df.apply(lambda x: game_play_shares[pitbat_combo][x.game_pk].loc[x.play_type].play_share if x.play_type in game_play_shares[pitbat_combo][x.game_pk].index else 0, axis = 1)
-            
-    return all_plays_by_pitbat_combo
+
+        plays_by_pitbat_combo_with_play_shares[pitbat_combo] = game_play_df
+
+    return plays_by_pitbat_combo_with_play_shares
 
 def insert_missing_game_play_shares(weather_regression_data: dict, hand_combos: list = constants.HAND_COMBOS) -> dict:
     # As the only plays in our data are types that happened in games, fill in all the missing play types for each game with a game_share of 0 for that play type
@@ -546,13 +553,15 @@ def insert_missing_game_play_shares(weather_regression_data: dict, hand_combos: 
                                                                                                                          "game_date":[game_info.game_date]*num_missing_plays,
                                                                                                                          "play_type":missing_plays,
                                                                                                                          "temprature":[game_info.temprature]*num_missing_plays,
-                                                                                                                         "wind_speed":[game_info.wind_speed]*num_missing_plays,
-                                                                                                                         "wind_direction":[game_info.wind_direction]*num_missing_plays,
+                                                                                                                         "Right to Left":[game_info["Right to Left"]]*num_missing_plays,
+                                                                                                                         "Left to Right":[game_info["Left to Right"]]*num_missing_plays,
+                                                                                                                         "in":[game_info["in"]]*num_missing_plays,
+                                                                                                                         "out":[game_info["out"]]*num_missing_plays,
+                                                                                                                         "zero":[game_info["zero"]]*num_missing_plays,
                                                                                                                          "game_play_share":[0]*num_missing_plays})])
 
     return weather_regression_data
 
-###########################################################################################    
 def create_weather_regression_dataframes(all_plays_by_hand_combo):
     """ INSERT FUNCTION INFORMATION"""
 
@@ -571,7 +580,8 @@ def create_weather_regression_dataframes(all_plays_by_hand_combo):
         weather_training_df = weather_training_df[weather_training_df.game_date.apply(lambda x: int(x.split("-")[1])) >=5]
         
         # Filter to only the columns we will need for the weather regressions
-        weather_training_data[pitbat_combo] = weather_training_df[["game_pk", "play_type", "temprature", "wind_speed", "wind_direction", "game_play_share"]]
+        weather_training_data[pitbat_combo] = weather_training_df[["game_pk", "play_type", "temprature", "Left to Right", "Right to Left",
+                                                                   "in", "out", "zero", "game_play_share"]]
         
         # Square temprature to use in the regression because I believe it behaves this way
         weather_training_data[pitbat_combo]["temprature_squared"] = weather_training_data[pitbat_combo]["temprature"].apply(lambda x: x**2)
@@ -583,5 +593,52 @@ def create_weather_regression_dataframes(all_plays_by_hand_combo):
         
         
     return weather_training_data
-###########################################################################################
 
+######################################################################################
+def compute_weather_regression_coefficients(cleaned_pitches):
+    """
+    Function regresses the percent of plays in a game that are each play type on the underlying weather condition to determine
+    the impact of weather conditions on the play type distribution. This will be used in neutralizing batting stats for use in 
+    modeling.
+    
+    Parameters
+    --------------
+    weather_training_data: DataFrame
+        A DataFrame that contains the underlying weather conditions of each play in addition to the game information. This is the direct
+        output of the prepare_weather_regressions function.
+    -----------------    
+   
+    Returns: Tuple(DataFrame, Dictionary)
+        A DataFrame of the original weather_training_data for use later on.
+        A Nested Dictionary that contains the weather coefficients for each weather datapoint for each play type
+    """
+
+    weather_training_data = create_weather_regression_dataframes(cleaned_pitches)
+
+    weather_coefficients = {}
+
+    for pitbat_combo in constants.HAND_COMBOS:
+        weather_coefficients[pitbat_combo] = {}
+        
+        # Segment to only the specific play type for each play type before regressing on the weather info
+        for play_type in weather_training_data[pitbat_combo].play_type.unique():
+            regression_df = weather_training_data[pitbat_combo][weather_training_data[pitbat_combo].play_type == play_type]
+
+            # Remove outliers for game_share_delta, most of which are caused by low pitbat_combo sample sizes in games
+            regression_df = regression_df[(np.abs(stats.zscore(regression_df.game_play_share)) < 3)]
+
+            # Create 2 sets of x data, with and without squaring temprature
+            x = regression_df[["temprature", "Left to Right", "Right to Left", "in", "out", "zero"]].copy()
+            x_sq = regression_df[["temprature_squared", "Left to Right", "Right to Left", "in", "out", "zero"]].copy()
+
+            y = regression_df.game_play_share
+
+            # Regress the temprature squared dataset on game_share_delta
+            lin_sq = LinearRegression(fit_intercept = True)
+            lin_sq.fit(x_sq, y)
+
+            weather_coefficients[pitbat_combo][play_type] = {"intercept":lin_sq.intercept_, "temprature_sq":lin_sq.coef_[0], "wind_ltr":lin_sq.coef_[1],
+                                                     "wind_rtl":lin_sq.coef_[2], "wind_in":lin_sq.coef_[3], "wind_out":lin_sq.coef_[4]}
+            
+    return(weather_training_data, weather_coefficients)
+######################################################################################
