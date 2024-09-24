@@ -25,7 +25,7 @@ except:
 ######################################################################################
 # Clean Pitch Data
 ######################################################################################
-def get_wind_direction(full_weather: str) -> str:
+def _get_wind_direction(full_weather: str) -> str:
 
     """Given the full weather description as scraped from a baseball reference box score like
     https://www.baseball-reference.com/boxes/CHA/CHA202407080.shtml, pull out just the wind direction.
@@ -53,7 +53,7 @@ def get_wind_direction(full_weather: str) -> str:
 
     return weather
 
-def convert_wind_direction(all_plays_by_pitbat_combo, wind_column = "wind_direction"):
+def _convert_wind_direction(all_plays_by_pitbat_combo, wind_column = "wind_direction"):
     """
     Function converts the wind columns in all_plays_by_hand_combo from a categorical wind direction (string) and numeric wind speed into OHE columns representing
     both wind direction and wind speed
@@ -83,7 +83,7 @@ def convert_wind_direction(all_plays_by_pitbat_combo, wind_column = "wind_direct
     
     return wind_columns
 
-def correct_home_away_swap(all_pitches: pd.DataFrame) -> pd.DataFrame:
+def _correct_home_away_swap(all_pitches: pd.DataFrame) -> pd.DataFrame:
     """Function used to correct a series of games across years where the home team and away team are swapped on baseball reference
     
     ------------INPUTS------------
@@ -362,7 +362,7 @@ def correct_home_away_swap(all_pitches: pd.DataFrame) -> pd.DataFrame:
 
     return all_pitches
 
-def segregate_plays_by_pitbat_combo(cleaned_plays: pd.DataFrame) -> pd.DataFrame:
+def _segregate_plays_by_pitbat_combo(cleaned_plays: pd.DataFrame) -> pd.DataFrame:
     """Function that divides a full dataframe of cleaned plays into a dictionary, segregating the plays by the 4 possible pitbat combos.
     
     ------------INPUTS------------
@@ -404,7 +404,7 @@ def clean_raw_pitches(raw_pitches_df: pd.DataFrame) -> pd.DataFrame:
     raw_pitches_df = raw_pitches_df[raw_pitches_df.game_type == "R"]
 
     # Correct home and away mistakes in the pitch data
-    raw_pitches_df = correct_home_away_swap(raw_pitches_df)
+    raw_pitches_df = _correct_home_away_swap(raw_pitches_df)
 
     # Convert the datetime game_date to a string formatted as YYYY-MM-DD, and sort the df on the column to make sure everything is in order
     raw_pitches_df.game_date = raw_pitches_df.game_date.apply(lambda x: str(x).split(" ")[0])
@@ -442,11 +442,11 @@ def clean_raw_pitches(raw_pitches_df: pd.DataFrame) -> pd.DataFrame:
     # Break up the full weather info into temp, wind speed, and wind direction seperately
     final_plays["temprature"] = final_plays.full_weather.apply(lambda x: int(x.split(": ")[1].split("°")[0]))
     final_plays["wind_speed"] = final_plays.full_weather.apply(lambda x: int(x.split("Wind ")[1].split("mph")[0]) if "Wind" in x else 0)
-    final_plays["wind_direction"] = final_plays.full_weather.apply(get_wind_direction)
+    final_plays["wind_direction"] = final_plays.full_weather.apply(_get_wind_direction)
     final_plays["wind_direction"] = final_plays.wind_direction.apply(lambda x: x.split(", ")[0] if x != None else x)
 
     # Convert the wind direction text column into a one-hot encoded set of columns multiplied by the wind speed (yields individual columns representing total wind speed)
-    final_plays = convert_wind_direction(final_plays, final_plays.wind_direction)
+    final_plays = _convert_wind_direction(final_plays, final_plays.wind_direction)
 
 
     ############ Attatch the ballpark info to each pitch ############
@@ -458,7 +458,7 @@ def clean_raw_pitches(raw_pitches_df: pd.DataFrame) -> pd.DataFrame:
     final_plays["ballpark"] = final_plays.apply(lambda x: ballpark_info[(ballpark_info.Team.values == x.home_team) & (ballpark_info["End Date"].values > int(x.game_date.split("-")[0]))].Stadium.iloc[0],axis=1)
     
     ############ Divide pitches by pitbat combos in 4 dataframes ############
-    all_plays_by_pitbat_combo = segregate_plays_by_pitbat_combo(final_plays)
+    all_plays_by_pitbat_combo = _segregate_plays_by_pitbat_combo(final_plays)
 
     return all_plays_by_pitbat_combo
 
@@ -468,7 +468,7 @@ def clean_raw_pitches(raw_pitches_df: pd.DataFrame) -> pd.DataFrame:
 # Build a DataFrame for and then run Weather Regression, returning coefficients
 ######################################################################################
 
-def insert_game_play_shares(all_plays_by_pitbat_combo: dict) -> dict:
+def _insert_game_play_shares(all_plays_by_pitbat_combo: dict) -> dict:
     """
     Function calculates the game play share (percentage outcome by play type) for individual plays for a specific game and inserts a
     column of the shares into all relevant all plays dfs
@@ -528,7 +528,7 @@ def insert_game_play_shares(all_plays_by_pitbat_combo: dict) -> dict:
 
     return plays_by_pitbat_combo_with_play_shares
 
-def insert_missing_game_play_shares(weather_regression_data: dict, hand_combos: list = constants.HAND_COMBOS) -> dict:
+def _insert_missing_game_play_shares(weather_regression_data: dict, hand_combos: list = constants.HAND_COMBOS) -> dict:
     # As the only plays in our data are types that happened in games, fill in all the missing play types for each game with a game_share of 0 for that play type
     play_types = constants.PLAY_TYPES
     n = 0
@@ -562,12 +562,12 @@ def insert_missing_game_play_shares(weather_regression_data: dict, hand_combos: 
 
     return weather_regression_data
 
-def create_weather_regression_dataframes(all_plays_by_hand_combo):
+def _create_weather_regression_dataframes(all_plays_by_hand_combo):
     """ INSERT FUNCTION INFORMATION"""
 
     # Start by filling in all the game play shares
-    games_df = insert_game_play_shares(all_plays_by_hand_combo.copy())
-    games_df = insert_missing_game_play_shares(games_df)
+    games_df = _insert_game_play_shares(all_plays_by_hand_combo.copy())
+    games_df = _insert_missing_game_play_shares(games_df)
 
     weather_training_data = {x:{} for x in constants.HAND_COMBOS}
     l =  []
@@ -613,7 +613,7 @@ def compute_weather_regression_coefficients(cleaned_pitches):
         A Nested Dictionary that contains the weather coefficients for each weather datapoint for each play type
     """
 
-    weather_training_data = create_weather_regression_dataframes(cleaned_pitches)
+    weather_training_data = _create_weather_regression_dataframes(cleaned_pitches)
 
     weather_coefficients = {}
 
