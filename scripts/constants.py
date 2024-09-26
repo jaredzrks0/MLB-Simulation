@@ -3,7 +3,7 @@
 #####################################################################
 
 HAND_COMBOS = ["RR", "RL", "LR", "LL"]
-PLAY_TYPES = ['strikeout', 'fly_out', 'double', 'out', 'fielders_choice','error', 'walk', 'home_run',
+PLAY_TYPES = ['strikeout', 'field_out', 'double', 'fielders_choice','error', 'walk', 'home_run',
           'single', 'sacrifice', 'double_play', 'intent_walk', 'triple']
 
 # Team name and abbv conversions for use in attatching weather to pitches
@@ -28,6 +28,6 @@ RELEVANT_PLAY_TYPES = ["field_out", "strikeout", "strikeout_double_play", "force
                     "walk", "hit_by_pitch", "intent_walk", "field_error"]
 
 # For converting/combining play title syntax of raw statcast data
-PLAY_TYPE_DICT = {"field_out":"fly_out", "strikeout":"strikeout", "strikeout_double_play":"strikeout", "force_out":"out", "grounded_into_double_play":"double_play", "double_play":"double_play", "fielders_choice":"fielders_choice",
-                    "fielders_choice_out":"fielders_choice", "other_out":"out", "sac_fly":"sacrifice", "sac_bunt":"sacrifice", "single":"single", "double":"double", "triple":"triple", "home_run":"home_run", 
+PLAY_TYPE_DICT = {"field_out":"field_out", "strikeout":"strikeout", "strikeout_double_play":"strikeout", "force_out":"field_out", "grounded_into_double_play":"double_play", "double_play":"double_play", "fielders_choice":"fielders_choice",
+                    "fielders_choice_out":"fielders_choice", "other_out":"field_out", "sac_fly":"sacrifice", "sac_bunt":"sacrifice", "single":"single", "double":"double", "triple":"triple", "home_run":"home_run", 
                     "walk":"walk", "hit_by_pitch":"walk", "intent_walk":"intent_walk", "field_error":"error"}

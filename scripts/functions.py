@@ -6,6 +6,9 @@ from scipy import stats
 import sys
 
 from sklearn.linear_model import LinearRegression
+from sklearn.preprocessing import OneHotEncoder, StandardScaler
+from sklearn.compose import ColumnTransformer
+from sklearn.pipeline import Pipeline
 
 from IPython.display import clear_output
 
@@ -425,7 +428,6 @@ def clean_raw_pitches(raw_pitches_df: pd.DataFrame) -> pd.DataFrame:
     # Insert a new 'type counter' coulumn that will be used repeatedly for calculating rolling stats
     final_plays["type_counter"] = 1
 
-   
     ############ Attatch the weather information to each pitch ############
 
     # Build a combined weather dataframe by concatanating all yearly weather dataframes belonging to years present in the plays dataframe
@@ -621,9 +623,10 @@ def _compute_weather_regression_coefficients(all_plays_by_hand_combo):
         for play_type in weather_training_data[pitbat_combo].play_type.unique():
             regression_df = weather_training_data[pitbat_combo][weather_training_data[pitbat_combo].play_type == play_type]
 
-            # Remove outliers for game_share_delta, most of which are caused by low pitbat_combo sample sizes in games
-            regression_df = regression_df[(np.abs(stats.zscore(regression_df.game_play_share)) < 3)]
-
+            # Remove outliers for game_share_delta, most of which are caused by low pitbat_combo sample sizes in games. However only do so if there are non 'outliers'. The else
+            # triggers is early in the season there is a play like int. walk that has not happened in a game and all game play shares are 0
+            regression_df = regression_df[(np.abs(stats.zscore(regression_df.game_play_share)) < 3)] if len(regression_df[(np.abs(stats.zscore(regression_df.game_play_share)) < 3)]) >0 else regression_df
+            
             # Create 2 sets of x data, with and without squaring temprature
             x = regression_df[["temprature", "Left to Right", "Right to Left", "in", "out", "zero"]].copy()
             x_sq = regression_df[["temprature_squared", "Left to Right", "Right to Left", "in", "out", "zero"]].copy()
@@ -662,13 +665,13 @@ def _compute_park_factors(all_plays_by_hand_combo):
         park_factors_dict[pitbat_combo] = {}
         
         # For each ballpark, segment all our plays into 2 DataFrames. 1 for all plays at the park and 1 or all plays not at the park
-        for ballpark in all_plays_by_hand_combo["RR"].ballpark.unique():
+        for ballpark in all_plays_by_hand_combo[pitbat_combo].ballpark.unique():
             park_factors_dict[pitbat_combo][ballpark] = {}
             at_park_df = all_plays_by_hand_combo[pitbat_combo][(all_plays_by_hand_combo[pitbat_combo].ballpark == ballpark)].copy()
             not_at_park_df = all_plays_by_hand_combo[pitbat_combo][(all_plays_by_hand_combo[pitbat_combo].ballpark != ballpark)].copy()
 
             # For each play type, calculate the percentage it occurs at in the park and out of the park
-            for play_type in all_plays_by_hand_combo["RR"].play_type.unique():
+            for play_type in all_plays_by_hand_combo[pitbat_combo].play_type.unique():
                 at_park_rate = len(at_park_df[at_park_df.play_type == play_type])/len(at_park_df)
                 not_at_park_rate = len(not_at_park_df[not_at_park_df.play_type == play_type])/len(not_at_park_df)
 
@@ -765,8 +768,6 @@ def neutralize_stats(all_plays_by_hand_combo, coef_dict):
     return factored_training_stats
 ######################################################################################
 
-
-
 def roll_neutralized_batting_stats(neutralized_stats):
     """
     Function rolls batting stats and percentages across the tracked play types.
@@ -816,7 +817,7 @@ def roll_neutralized_batting_stats(neutralized_stats):
             
     ######################### ROLL NEUTRALIZED STATS #########################
 
-        # Roll batting stats on a season and montly basis and convert to a dict for speed
+        # Roll batting stats on a season and montly basis and convert to a dict for speed. Additionally, the closed input offsets the data by 1 row down, so that the values represent the percentages INCOMING to the plate appearence
         season_rolled_batter_df = batter_df[['batter'] + [col for col in batter_df if "season_" in col]].copy().groupby(by="batter").rolling(window=504, closed="left", min_periods=0).sum().to_dict()
         month_rolled_batter_df = batter_df[['batter'] + [col for col in batter_df if "month_" in col]].copy().groupby(by="batter").rolling(window=75, closed="left", min_periods=0).sum().to_dict()
 
@@ -856,27 +857,146 @@ def roll_neutralized_batting_stats(neutralized_stats):
   ######################### STORE FINAL DATAFRAMES #########################
 
         # Place the final rolling factored batting stats DataFrame into the storage dictionary
-        rolling_factored_batting_stats[pitbat_combo] = batter_df[["game_pk", "game_date", "ballpark","temprature", "wind_speed", "wind_direction", "batter", "pitcher", "pitbat",'on_3b', 'on_2b', 'on_1b', 'outs_when_up', 'inning', 'inning_topbot', "bat_score", "fld_score"] + ["season_{}".format(play) for play in constants.PLAY_TYPES] + ["month_{}".format(play) for play in constants.PLAY_TYPES]]
-        rolling_factored_pitching_stats[pitbat_combo] = pitcher_df[["game_pk", "game_date", "ballpark","temprature", "wind_speed", "wind_direction", "batter", "pitcher", "pitbat",'on_3b', 'on_2b', 'on_1b', 'outs_when_up', 'inning', 'inning_topbot', "bat_score", "fld_score"] + ["season_{}".format(play) for play in constants.PLAY_TYPES] + ["month_{}".format(play) for play in constants.PLAY_TYPES]]
+        rolling_factored_batting_stats[pitbat_combo] = batter_df[["play_type", "game_pk", "game_date", "ballpark","temprature", "wind_speed", "wind_direction", "batter", "pitcher", "pitbat",'on_3b', 'on_2b', 'on_1b', 'outs_when_up', 'inning', 'inning_topbot', "bat_score", "fld_score"] + ["season_{}".format(play) for play in constants.PLAY_TYPES] + ["month_{}".format(play) for play in constants.PLAY_TYPES]]
+        rolling_factored_pitching_stats[pitbat_combo] = pitcher_df[["play_type", "game_pk", "game_date", "ballpark","temprature", "wind_speed", "wind_direction", "batter", "pitcher", "pitbat",'on_3b', 'on_2b', 'on_1b', 'outs_when_up', 'inning', 'inning_topbot', "bat_score", "fld_score"] + ["season_{}".format(play) for play in constants.PLAY_TYPES] + ["month_{}".format(play) for play in constants.PLAY_TYPES]]
         
     clear_output(wait=False)
     
     return {"pitching_stats":rolling_factored_pitching_stats, "batting_stats":rolling_factored_batting_stats}
 
 
+def stitch_pitbat_stats(rolling_factored_stats):
+    # Create Storage
+    stitched_data = {}
+    
+    # Concat all 4 DataFrames (from each pitbat combo) into one dataframe
+    df_batter = pd.concat([rolling_factored_stats["batting_stats"][pitbat_combo] for pitbat_combo in constants.HAND_COMBOS])
+    df_pitcher = pd.concat([rolling_factored_stats["pitching_stats"][pitbat_combo] for pitbat_combo in constants.HAND_COMBOS])
+            
+    stitched_data["batting_stats"] = df_batter
+    stitched_data["pitching_stats"] = df_pitcher
+    
+    return stitched_data
 
 
+# Attach the pitching probability vector to the training set by "joining" on the pitbat combo, year, and pitcher name, where the date is just less than the given PA.
+# Then reattatch the weather and ballpark info for that game
+def merge_pitching_batting_leagueaverage_and_weather_datasets(stitched_dataset, cleaned_raw_pitches): # THIS FUNCTION IS PROBLEMATICALLY SLOW
+
+    ########################## MERGE BATTING AND PITCHING ##########################
+    # Label all the columns as pitcher related in the df for when they are merged later. Then define the set of columns we will need to merge with the total batting stats
+    stitched_dataset["pitching_stats"].columns = ["pitcher_" + col for col in stitched_dataset["pitching_stats"].columns]
+    pitching_columns_to_add = ["pitcher_season_{}".format(play) for play in constants.PLAY_TYPES] + ["pitcher_month_{}".format(play) for play in constants.PLAY_TYPES]
+    
+    # Attatch the pitching stats to the batting stats. This works in concept because the indexes remain the same even as the DFs are separated
+    stitched_dataset["batting_stats"][pitching_columns_to_add] = stitched_dataset["pitching_stats"][pitching_columns_to_add]
+    
+    ########################## MERGE WITH WEATHER ##########################
+
+    # Attatch the weather information # THIS MAY HAVE TO CHANGE WITH WEATHER CODING UPDATES
+    print("Attatching Original Weather Information to Final Dataset")
+    weather_columns = ["temprature", "Left to Right", "Right to Left", "in", "out", "zero"]
+    stitched_dataset["batting_stats"][weather_columns] = stitched_dataset["batting_stats"].apply(lambda x: cleaned_raw_pitches[x.pitbat][cleaned_raw_pitches[x.pitbat].game_pk == x.game_pk].iloc[0][weather_columns] if len(cleaned_raw_pitches[x.pitbat][cleaned_raw_pitches[x.pitbat].game_pk == x.game_pk]) > 0 else pd.Series({x:None for x in weather_columns}) , axis=1)
+    
+    # Convert temprature to temprature squared and drop regular temprature from the DataFrame
+    stitched_dataset['batting_stats']["temprature_sq"] = stitched_dataset['batting_stats'].temprature.apply(lambda x: x**2)
+    stitched_dataset['batting_stats'] = stitched_dataset['batting_stats'].drop(columns=['temprature'])
+
+    ########################## MERGE WITH LEAGUE AVERAGE INFO ##########################
+
+    # First filter the league average info from the last month and season for later calculation of averages (in the for loop)
+    print("Attatching League Average Information")
+    league_averages = {}
+    for pitbat_combo in constants.HAND_COMBOS:
+        league_averages[pitbat_combo] = {}
+        pitbat_df = stitched_dataset["batting_stats"][stitched_dataset["batting_stats"].pitbat == pitbat_combo].copy()
+        for date in pitbat_df.game_date.unique():
+            league_averages[pitbat_combo][date] = {"season":{}, "month":{}}
+            season_ago = str(int(date.split("-")[0]) - 1) + date.split("-")[1] + date.split("-")[2]
+            month_ago = date.split("-")[0] + str(int(date.split("-")[1]) - 1) + date.split("-")[2] #We can just subtract one from the month because baseball is not played in January
+            
+            season_pitbat_date_df = pitbat_df[(pitbat_df.game_date < date) & (pitbat_df.game_date > season_ago)]
+            month_pitbat_date_df = pitbat_df[(pitbat_df.game_date < date) & (pitbat_df.game_date > month_ago)]
+            
+            # Now calculate the play data for the league (average) over the last month and season, and store in a dictionary for quicker stitching later on
+            for play in constants.PLAY_TYPES:
+                season_play_average = len(season_pitbat_date_df[season_pitbat_date_df.play_type == play])/len(season_pitbat_date_df) if len(season_pitbat_date_df) > 0 else None
+                month_play_average = len(month_pitbat_date_df[month_pitbat_date_df.play_type == play])/len(month_pitbat_date_df) if len(month_pitbat_date_df) > 0 else None
+                
+                league_averages[pitbat_combo][date]["season"][play] = season_play_average
+                league_averages[pitbat_combo][date]["month"][play] = season_play_average
+
+    # Retreive the league average of each play type from the last month and season for every date/play, and stitch it into the row on the main DataFrame
+    for play in constants.PLAY_TYPES:
+        stitched_dataset["batting_stats"]["season_league_average_{}".format(play)] = stitched_dataset["batting_stats"].apply(lambda x: league_averages[x.pitbat][x.game_date]["season"][play], axis=1)
+        stitched_dataset["batting_stats"]["month_league_average_{}".format(play)] = stitched_dataset["batting_stats"].apply(lambda x: league_averages[x.pitbat][x.game_date]["month"][play], axis=1)
 
 
+    ########################## ADD FINAL TOUCHES ##########################
+    
+    # Remove unwanted columns
+    stitched_dataset['batting_stats'] = stitched_dataset['batting_stats'][[col for col in stitched_dataset['batting_stats'].columns if col not in ["game_pk", "batter", "pitcher", "wind_speed", "wind_direction", "year"]]]
+    
+    # Finally, add a column that is a binary 'is on base' in case we want to run a two step prediction algorithm with step one on base and step two what kind of on base or out
+    stitched_dataset["batting_stats"]["is_on_base"] = stitched_dataset["batting_stats"].play_type.apply(lambda x: 1 if x in ["single", "double", "triple", "home_run", "walk", "intent_walk"] else 0)
+
+    clear_output(wait=False)
+    
+    return stitched_dataset['batting_stats']
 
 
+def make_dataset_machine_trainable(final_dataset):
+    # Convert some binary type text columns into actual binary
+    for col in ["on_3b", "on_2b", "on_1b"]:
+        final_dataset[col] = final_dataset[col].apply(lambda x: 1 if pd.isna(x) == False else 0) 
+    final_dataset["inning_topbot"] = final_dataset[col].apply(lambda x: 1 if x == "Top" else 0) 
+    
+    # Drop NA rows and games before May for training purposes
+    final_dataset = final_dataset.dropna()
+    final_dataset = final_dataset[final_dataset.game_date.apply(lambda x: int(x.split("-")[1])) >= 5].reset_index(drop=True)
+    
+    # Drop the game date column. We couldn't do this earlier because we needed it to filter out early season games in the line before
+    final_dataset.drop(columns = ["game_date"], inplace=True)
 
+    # Define our y targets and drop them from the dataset
+    y_play = final_dataset.play_type
+    y_onbase = final_dataset.is_on_base
 
+    final_dataset.drop(columns = ["play_type", "is_on_base"], inplace = True)
 
+    # Create a pipeline for scaling, and encoding (and eventually PCA if needed)
+    numeric_features = [col for col in final_dataset if col not in ["ballpark", "pitbat"]]
+    numeric_transformer = Pipeline(
+        steps=[("scaler", StandardScaler())]
+    )
+    
+    categorical_features = ["ballpark", "pitbat"]
+    categorical_transformer = Pipeline(
+        steps=[
+            ("encoder", OneHotEncoder(handle_unknown="ignore")),
+        ]
+    )
+    
+    preprocessor = ColumnTransformer(
+        transformers=[
+            ("num", numeric_transformer, numeric_features),
+            ("cat", categorical_transformer, categorical_features),
+        ]
+    )
 
+    pipe = Pipeline(
+    steps=[("preprocessor", preprocessor)]
+    )
+
+    final_dataset = pipe.fit_transform(final_dataset)
+
+    return {"X":final_dataset, "y_play":y_play, "y_onbase":y_onbase}
 
 
 def calculate_league_averages(neutralized_unrolled_data): # The input here is the output of the neutralize_stats function
+    '''
+    This is used to calculate the league averages over a period of time. To be used in creating a baseline guesser when used over the entire dataset
+    '''
     league_average_plays_dict = {}
     for pitbat_combo in constants.HAND_COMBOS:
         league_average_plays_dict[pitbat_combo] = {}
