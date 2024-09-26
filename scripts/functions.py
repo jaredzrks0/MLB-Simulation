@@ -452,7 +452,7 @@ def clean_raw_pitches(raw_pitches_df: pd.DataFrame) -> pd.DataFrame:
     ############ Attatch the ballpark info to each pitch ############
 
     # Import file to help connect team and year with a specific ballpark
-    ballpark_info = pd.read_excel("../Outside Info Files/Ballpark Info.xlsx", header=2)[["Stadium", "Team", "Start Date", "End Date"]]
+    ballpark_info = pd.read_excel("../non_mlb_data/Ballpark Info.xlsx", header=2)[["Stadium", "Team", "Start Date", "End Date"]]
         
     # Create a column for the ballpark based on the date and home_team of each pitch
     final_plays["ballpark"] = final_plays.apply(lambda x: ballpark_info[(ballpark_info.Team.values == x.home_team) & (ballpark_info["End Date"].values > int(x.game_date.split("-")[0]))].Stadium.iloc[0],axis=1)
@@ -756,6 +756,9 @@ def neutralize_stats(all_plays_by_hand_combo, coef_dict):
         # Grab the final df that we will use for rolling stats
         factored_training_stats[pitbat_combo] = df[["game_pk", "game_date","ballpark", "temprature", "wind_speed", "wind_direction", "batter", "pitcher",
                                                     'on_3b', 'on_2b', 'on_1b', 'outs_when_up', 'inning', 'inning_topbot', "bat_score", "fld_score", "play_type","impact", "play_value"]]
+        
+        # And finally sort so everything is in order
+        factored_training_stats[pitbat_combo] = factored_training_stats[pitbat_combo].sort_values(by = ["game_date", "inning", "inning_topbot", 'outs_when_up'], ascending = True)
 
     clear_output(wait=False)
     
@@ -764,7 +767,101 @@ def neutralize_stats(all_plays_by_hand_combo, coef_dict):
 
 
 
+def roll_neutralized_batting_stats(neutralized_stats):
+    """
+    Function rolls batting stats and percentages across the tracked play types.
+    
+    Parameters
+    --------------
+    neutralized_stats: Dict of DataFrames
+        DataFrames that contains the all plays segmented by hand combo, and also includes a column with the calculated impact from the weather/ballpark. This is
+        the direct output on the neutralize_stats function
 
+    min_periods: Integer
+        The minimum number of at-bats to consider when rolling stats. The rolling function will return None before this number is hit.
+    -----------------    
+   
+    Returns: Tuple(DataFrame, Dictionary)
+        The original all_plays_by_hand_combbo DataFrame for later use
+        A Nested Dictionary that contains the park factors for each ballpark and each play
+    """
+    
+    # Create a rolling percentage for each play outcome for each batter and pitcher for each year 
+    rolling_factored_batting_stats = {}
+    rolling_factored_pitching_stats = {}
+
+    for pitbat_combo in constants.HAND_COMBOS:
+        print("Rolling Batting and Pitching Stats {}".format(pitbat_combo))
+        clear_output(wait=True)
+
+        # Set up dictionaries to house everything
+        rolling_factored_batting_stats[pitbat_combo] = {}
+        rolling_factored_pitching_stats[pitbat_combo] = {}
+
+        # Filter down to the stats for just the relevant hand combo and sort by game date for rolling
+        batter_df, pitcher_df = neutralized_stats[pitbat_combo].copy(), neutralized_stats[pitbat_combo].copy()
+        #batter_df, pitcher_df = batter_df.sort_values(by = "game_date", ascending = True), pitcher_df.sort_values(by = "game_date", ascending = True)
+        batter_df["pitbat"] = pitbat_combo
+        pitcher_df["pitbat"] = pitbat_combo
+    
+    ######################### APPLY NEUTRALIZED FACTORS TO UNDERLYING STATS #########################
+
+        for play in constants.PLAY_TYPES:
+            # Multiply the situation impact by a binary vector for play outcomes with a 1 for the correct play
+            batter_df["season_{}".format(play)] = batter_df.apply(lambda x: 1*x.play_value if x.play_type==play else 0, axis = 1)
+            batter_df["month_{}".format(play)] = batter_df["season_{}".format(play)]
+            # Multiply the situation impact by a binary vector for play outcomes with a 1 for the correct play
+            pitcher_df["season_{}".format(play)] = pitcher_df.apply(lambda x: 1*x.play_value if x.play_type==play else 0, axis = 1)
+            pitcher_df["month_{}".format(play)] = pitcher_df["season_{}".format(play)]
+            
+    ######################### ROLL NEUTRALIZED STATS #########################
+
+        # Roll batting stats on a season and montly basis and convert to a dict for speed
+        season_rolled_batter_df = batter_df[['batter'] + [col for col in batter_df if "season_" in col]].copy().groupby(by="batter").rolling(window=504, closed="left", min_periods=0).sum().to_dict()
+        month_rolled_batter_df = batter_df[['batter'] + [col for col in batter_df if "month_" in col]].copy().groupby(by="batter").rolling(window=75, closed="left", min_periods=0).sum().to_dict()
+
+        # Roll pitching stats on a season and montly basis and convert to a dict for speed
+        season_rolled_pitcher_df = pitcher_df[['pitcher'] + [col for col in pitcher_df if "season_" in col]].copy().groupby(by="pitcher").rolling(window=504, closed="left", min_periods=0).sum().to_dict()
+        month_rolled_pitcher_df = pitcher_df[['pitcher'] + [col for col in pitcher_df if "month_" in col]].copy().groupby(by="pitcher").rolling(window=75, closed="left", min_periods=0).sum().to_dict()
+        
+        # Assign the rolled values from players' stats back to the player DataFrames by pulling the data from the dictionaries
+        for play in constants.PLAY_TYPES:
+            batter_df["season_{}".format(play)] = batter_df.apply(lambda x: season_rolled_batter_df["season_{}".format(play)][(x.batter, x.name)], axis = 1)
+            batter_df["month_{}".format(play)] = batter_df.apply(lambda x: month_rolled_batter_df["month_{}".format(play)][(x.batter, x.name)], axis = 1)
+            
+            pitcher_df["season_{}".format(play)] = pitcher_df.apply(lambda x: season_rolled_pitcher_df["season_{}".format(play)][(x.pitcher, x.name)], axis = 1)
+            pitcher_df["month_{}".format(play)] = pitcher_df.apply(lambda x: month_rolled_pitcher_df["month_{}".format(play)][(x.pitcher, x.name)], axis = 1)
+        
+    ######################### REPERCENTAGE NEUTRALIZED STATS (TO SUM % TO 1.0) Note this is a pretty slow function #########################
+
+        print("Repercentaging Rolled Batting Stats {}".format(pitbat_combo))
+        clear_output(wait=True)
+
+        # Repercentage factored batting stats percentage to sum to 1 because they don't necessarily after neutralization
+        season_columns = ["season_{}".format(play) for play in constants.PLAY_TYPES]
+        month_columns = ["month_{}".format(play) for play in constants.PLAY_TYPES]
+        batter_df[season_columns] = batter_df.apply(lambda row: pd.Series([row[f"season_{play_type}"]/row[season_columns].sum() for play_type in list(constants.PLAY_TYPES)]) if row[season_columns].sum() > 0 else pd.Series([0 for play_type in constants.PLAY_TYPES]), axis=1)
+        batter_df[month_columns] = batter_df.apply(lambda row: pd.Series([row[f"month_{play_type}"]/row[month_columns].sum() for play_type in list(constants.PLAY_TYPES)]) if row[month_columns].sum() > 0 else pd.Series([0 for play_type in constants.PLAY_TYPES]), axis=1)
+       
+        
+        print("Repercentaging Rolled Pitching Stats {}".format(pitbat_combo))
+        # Repercentage factored pitching stats percentage to sum to 1 because they don't necessarily after neutralization
+        pitcher_df[season_columns] = pitcher_df.apply(lambda row: pd.Series([row[f"season_{play_type}"]/row[season_columns].sum() for play_type in list(constants.PLAY_TYPES)]) if row[season_columns].sum() > 0 else pd.Series([0 for play_type in constants.PLAY_TYPES]), axis=1)
+        pitcher_df[month_columns] = pitcher_df.apply(lambda row: pd.Series([row[f"month_{play_type}"]/row[month_columns].sum() for play_type in list(constants.PLAY_TYPES)]) if row[month_columns].sum() > 0 else pd.Series([0 for play_type in constants.PLAY_TYPES]), axis=1)
+       
+
+#         pitcher_df[["season_{}".format(play) for play in plays]] = pitcher_df.apply(lambda x: pd.Series([x[["season_{}".format(play) for play in plays]]["season_{}".format(p)]/x[["season_{}".format(play) for play in plays]].sum() for p in [z for z in plays]]) if x[["season_{}".format(p) for p in plays]].sum() > 0 else pd.Series([0 for p in plays]), axis=1)
+#         pitcher_df[["month_{}".format(play) for play in plays]] = pitcher_df.apply(lambda x: pd.Series([x[["month_{}".format(play) for play in plays]]["month_{}".format(p)]/x[["month_{}".format(play) for play in plays]].sum() for p in [z for z in plays]]) if x[["month_{}".format(p) for p in plays]].sum() > 0 else pd.Series([0 for p in plays]), axis=1)
+  
+  ######################### STORE FINAL DATAFRAMES #########################
+
+        # Place the final rolling factored batting stats DataFrame into the storage dictionary
+        rolling_factored_batting_stats[pitbat_combo] = batter_df[["game_pk", "game_date", "ballpark","temprature", "wind_speed", "wind_direction", "batter", "pitcher", "pitbat",'on_3b', 'on_2b', 'on_1b', 'outs_when_up', 'inning', 'inning_topbot', "bat_score", "fld_score"] + ["season_{}".format(play) for play in constants.PLAY_TYPES] + ["month_{}".format(play) for play in constants.PLAY_TYPES]]
+        rolling_factored_pitching_stats[pitbat_combo] = pitcher_df[["game_pk", "game_date", "ballpark","temprature", "wind_speed", "wind_direction", "batter", "pitcher", "pitbat",'on_3b', 'on_2b', 'on_1b', 'outs_when_up', 'inning', 'inning_topbot', "bat_score", "fld_score"] + ["season_{}".format(play) for play in constants.PLAY_TYPES] + ["month_{}".format(play) for play in constants.PLAY_TYPES]]
+        
+    clear_output(wait=False)
+    
+    return {"pitching_stats":rolling_factored_pitching_stats, "batting_stats":rolling_factored_batting_stats}
 
 
 
