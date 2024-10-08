@@ -4,21 +4,25 @@ import pandas as pd
 import numpy as np
 from scipy import stats
 import sys
+import json
+import re
 
 from sklearn.linear_model import LinearRegression
 from sklearn.preprocessing import OneHotEncoder, StandardScaler
 from sklearn.compose import ColumnTransformer
 from sklearn.pipeline import Pipeline
 
+from cloud_modules import cloud_functions as cf # type: ignore
+
 from IPython.display import clear_output
 
-# Change the path so that we can import the local cloud functions stored in a different directory. THE PATH IS DIFFERENT ON MAC AND PI, SO USE TRY EXCEPT FOR BOTH
-try: # for mac
-    sys.path.insert(1, '/users/jaredzirkes/Desktop/Python/GitHub')
-    from google_cloud.cloud_functions import CloudHelper
-except:
-    sys.path.insert(1, "/home/pi/Desktop/Python")
-    from google_cloud.cloud_functions import CloudHelper
+# # Change the path so that we can import the local cloud functions stored in a different directory. THE PATH IS DIFFERENT ON MAC AND PI, SO USE TRY EXCEPT FOR BOTH
+# try: # for mac
+#     sys.path.insert(1, '/users/jaredzirkes/Desktop/Python/GitHub')
+#     from google_cloud.cloud_functions import CloudHelper
+# except:
+#     sys.path.insert(1, "/home/pi/Desktop/Python")
+#     from google_cloud.cloud_functions import CloudHelper
 
 ######################################################################################
 # FUNCTIONS TO BE USED IN BUILDING A TRAINING SET FOR PA PROBABILITY PREDICTIONS
@@ -85,6 +89,14 @@ def _convert_wind_direction(all_plays_by_pitbat_combo, wind_column = "wind_direc
         wind_columns[column] = wind_columns[column] * wind_columns["wind_speed"]
     
     return wind_columns
+
+def _pull_full_weather(game_date, home_team, away_team, total_weather_df):
+    try:
+        value = total_weather_df[(total_weather_df.date.values == game_date) & ((total_weather_df.home_team.values == constants.WEATHER_NAME_CONVERSIONS[home_team])|(total_weather_df.home_team.values == constants.WEATHER_NAME_CONVERSIONS[away_team]))].weather.iloc[0]                                                                                       
+        return value
+    except:
+        return 'Start Time Weather: 72° F, Wind 0mph, In Dome.'
+
 
 def _correct_home_away_swap(all_pitches: pd.DataFrame) -> pd.DataFrame:
     """Function used to correct a series of games across years where the home team and away team are swapped on baseball reference
@@ -388,9 +400,6 @@ def _segregate_plays_by_pitbat_combo(cleaned_plays: pd.DataFrame) -> pd.DataFram
 
     return all_plays_by_pitbat_combo
 
-
-
-
 ################################################################################
 def clean_raw_pitches(raw_pitches_df: pd.DataFrame) -> pd.DataFrame:
     """Function to clean a dataframe of raw pitches into a dataframe that we can use for all our later analyses.
@@ -402,7 +411,9 @@ def clean_raw_pitches(raw_pitches_df: pd.DataFrame) -> pd.DataFrame:
     ------------OUTPUTS------------
     cleaned_pitches: DataFrame
         - A cleaned dataframe of pitches resulting in plays."""
-
+    print("Cleaning Data")
+    import time
+    s = time.time()
     # Filter down to only regular season games
     raw_pitches_df = raw_pitches_df[raw_pitches_df.game_type == "R"]
 
@@ -427,35 +438,31 @@ def clean_raw_pitches(raw_pitches_df: pd.DataFrame) -> pd.DataFrame:
 
     # Insert a new 'type counter' coulumn that will be used repeatedly for calculating rolling stats
     final_plays["type_counter"] = 1
-
-    ############ Attatch the weather information to each pitch ############
+    
+    ############ ATTATCH WEATHER INFORMATION TO EACH PITCH ############
 
     # Build a combined weather dataframe by concatanating all yearly weather dataframes belonging to years present in the plays dataframe
     years = list(final_plays.game_date.apply(lambda x: x.split("-")[0]).value_counts().index)
     weather_dictionary_holder = {}
-
     for year in years:
-        yearly_weather_df = CloudHelper().download_from_cloud("proreference_weather_data/weather_data_{}".format(year))# if this fails we might not have that years weather in cloud storage
+        yearly_weather_df = cf.CloudHelper().download_from_cloud("proreference_weather_data/weather_data_{}".format(year))# if this fails we might not have that years weather in cloud storage
         weather_dictionary_holder[year] = yearly_weather_df
     total_weather_df = pd.concat([df for df in weather_dictionary_holder.values()])
-    
-    # Attatch the raw weather string to the the play by matching the date and home team
-    final_plays["full_weather"] = final_plays.apply(lambda x: total_weather_df[(total_weather_df.date.values == x.game_date) & ((total_weather_df.home_team.values == constants.WEATHER_NAME_CONVERSIONS[x.home_team])|((total_weather_df.home_team.values == constants.WEATHER_NAME_CONVERSIONS[x.away_team])))].weather.iloc[0], axis = 1)                                                                                        
+    # Attatch the raw weather string to the the play by matching the date and home team -- we've also added the away team clause to not throw errors on the limited number of cames coded wrong where in pitches data the teams didn't play eachother and were both on the road
+    final_plays["full_weather"] = final_plays.apply(lambda x: _pull_full_weather(x.game_date, x.home_team, x.away_team, total_weather_df), axis = 1)                                                                                        
     # Break up the full weather info into temp, wind speed, and wind direction seperately
     final_plays["temprature"] = final_plays.full_weather.apply(lambda x: int(x.split(": ")[1].split("°")[0]))
     final_plays["wind_speed"] = final_plays.full_weather.apply(lambda x: int(x.split("Wind ")[1].split("mph")[0]) if "Wind" in x else 0)
     final_plays["wind_direction"] = final_plays.full_weather.apply(_get_wind_direction)
     final_plays["wind_direction"] = final_plays.wind_direction.apply(lambda x: x.split(", ")[0] if x != None else x)
-
     # Convert the wind direction text column into a one-hot encoded set of columns multiplied by the wind speed (yields individual columns representing total wind speed)
     final_plays = _convert_wind_direction(final_plays, final_plays.wind_direction)
 
-
-    ############ Attatch the ballpark info to each pitch ############
+    ############ ATTATCH BALLPARK INFO TO EACH PITCH ############
 
     # Import file to help connect team and year with a specific ballpark
-    ballpark_info = pd.read_excel("../non_mlb_data/Ballpark Info.xlsx", header=2)[["Stadium", "Team", "Start Date", "End Date"]]
-        
+    ballpark_info = pd.read_excel("Data/non_mlb_data/Ballpark Info.xlsx", header=2)[["Stadium", "Team", "Start Date", "End Date"]]
+
     # Create a column for the ballpark based on the date and home_team of each pitch
     final_plays["ballpark"] = final_plays.apply(lambda x: ballpark_info[(ballpark_info.Team.values == x.home_team) & (ballpark_info["End Date"].values > int(x.game_date.split("-")[0]))].Stadium.iloc[0],axis=1)
     
@@ -510,7 +517,7 @@ def _insert_game_play_shares(all_plays_by_pitbat_combo: dict) -> dict:
             game_play_shares[pitbat_combo][game] = game_df
 
             # Update the counter and reprint to inform user of the current position
-            if n%1000 == 0:
+            if n%3000 == 0:
                 print("Calculating The Play Share by Play Type for Each Game. There are {}K Instances Remaining".format(round((sum([len(all_plays_by_pitbat_combo[x].game_pk.unique()) for x in constants.HAND_COMBOS])-n)/1000),6))
             n+= 1
         clear_output(wait = True)
@@ -537,7 +544,7 @@ def _insert_missing_game_play_shares(weather_regression_data: dict, hand_combos:
     for pitbat_combo in constants.HAND_COMBOS:
         for game in weather_regression_data[pitbat_combo].game_pk.unique():
             n += 1
-            if n%500 == 0:
+            if n%3000 == 0:
                 print("Filling in the values for the game_play_share variable for games without the play (0). There are {}K Instances Remaining".format(round((sum([len(weather_regression_data[x].game_pk.unique()) for x in constants.HAND_COMBOS])-n)/1000),6))
             clear_output(wait = True)
             
@@ -833,7 +840,7 @@ def roll_neutralized_batting_stats(neutralized_stats):
             pitcher_df["season_{}".format(play)] = pitcher_df.apply(lambda x: season_rolled_pitcher_df["season_{}".format(play)][(x.pitcher, x.name)], axis = 1)
             pitcher_df["month_{}".format(play)] = pitcher_df.apply(lambda x: month_rolled_pitcher_df["month_{}".format(play)][(x.pitcher, x.name)], axis = 1)
         
-    ######################### REPERCENTAGE NEUTRALIZED STATS (TO SUM % TO 1.0) Note this is a pretty slow function #########################
+    ######################### REPERCENTAGE NEUTRALIZED STATS (TO SUM % TO 1.0) #########################
 
         print("Repercentaging Rolled Batting Stats {}".format(pitbat_combo))
         clear_output(wait=True)
@@ -841,18 +848,20 @@ def roll_neutralized_batting_stats(neutralized_stats):
         # Repercentage factored batting stats percentage to sum to 1 because they don't necessarily after neutralization
         season_columns = ["season_{}".format(play) for play in constants.PLAY_TYPES]
         month_columns = ["month_{}".format(play) for play in constants.PLAY_TYPES]
-        batter_df[season_columns] = batter_df.apply(lambda row: pd.Series([row[f"season_{play_type}"]/row[season_columns].sum() for play_type in list(constants.PLAY_TYPES)]) if row[season_columns].sum() > 0 else pd.Series([0 for play_type in constants.PLAY_TYPES]), axis=1)
-        batter_df[month_columns] = batter_df.apply(lambda row: pd.Series([row[f"month_{play_type}"]/row[month_columns].sum() for play_type in list(constants.PLAY_TYPES)]) if row[month_columns].sum() > 0 else pd.Series([0 for play_type in constants.PLAY_TYPES]), axis=1)
+        
+        batter_df[season_columns] = batter_df[season_columns].div(batter_df[season_columns].sum())
+        batter_df[month_columns] = batter_df[month_columns].div(batter_df[month_columns].sum())
+        # batter_df[season_columns] = batter_df.apply(lambda row: pd.Series([row[f"season_{play_type}"]/row[season_columns].sum() for play_type in list(constants.PLAY_TYPES)]) if row[season_columns].sum() > 0 else pd.Series([0 for play_type in constants.PLAY_TYPES]), axis=1)
+        # batter_df[month_columns] = batter_df.apply(lambda row: pd.Series([row[f"month_{play_type}"]/row[month_columns].sum() for play_type in list(constants.PLAY_TYPES)]) if row[month_columns].sum() > 0 else pd.Series([0 for play_type in constants.PLAY_TYPES]), axis=1)
        
         
         print("Repercentaging Rolled Pitching Stats {}".format(pitbat_combo))
         # Repercentage factored pitching stats percentage to sum to 1 because they don't necessarily after neutralization
-        pitcher_df[season_columns] = pitcher_df.apply(lambda row: pd.Series([row[f"season_{play_type}"]/row[season_columns].sum() for play_type in list(constants.PLAY_TYPES)]) if row[season_columns].sum() > 0 else pd.Series([0 for play_type in constants.PLAY_TYPES]), axis=1)
-        pitcher_df[month_columns] = pitcher_df.apply(lambda row: pd.Series([row[f"month_{play_type}"]/row[month_columns].sum() for play_type in list(constants.PLAY_TYPES)]) if row[month_columns].sum() > 0 else pd.Series([0 for play_type in constants.PLAY_TYPES]), axis=1)
-       
-
-#         pitcher_df[["season_{}".format(play) for play in plays]] = pitcher_df.apply(lambda x: pd.Series([x[["season_{}".format(play) for play in plays]]["season_{}".format(p)]/x[["season_{}".format(play) for play in plays]].sum() for p in [z for z in plays]]) if x[["season_{}".format(p) for p in plays]].sum() > 0 else pd.Series([0 for p in plays]), axis=1)
-#         pitcher_df[["month_{}".format(play) for play in plays]] = pitcher_df.apply(lambda x: pd.Series([x[["month_{}".format(play) for play in plays]]["month_{}".format(p)]/x[["month_{}".format(play) for play in plays]].sum() for p in [z for z in plays]]) if x[["month_{}".format(p) for p in plays]].sum() > 0 else pd.Series([0 for p in plays]), axis=1)
+        
+        pitcher_df[season_columns] = pitcher_df[season_columns].div(pitcher_df[season_columns].sum())
+        pitcher_df[month_columns] = pitcher_df[month_columns].div(pitcher_df[month_columns].sum())
+        # pitcher_df[season_columns] = pitcher_df.apply(lambda row: pd.Series([row[f"season_{play_type}"]/row[season_columns].sum() for play_type in list(constants.PLAY_TYPES)]) if row[season_columns].sum() > 0 else pd.Series([0 for play_type in constants.PLAY_TYPES]), axis=1)
+        # pitcher_df[month_columns] = pitcher_df.apply(lambda row: pd.Series([row[f"month_{play_type}"]/row[month_columns].sum() for play_type in list(constants.PLAY_TYPES)]) if row[month_columns].sum() > 0 else pd.Series([0 for play_type in constants.PLAY_TYPES]), axis=1)
   
   ######################### STORE FINAL DATAFRAMES #########################
 
@@ -896,6 +905,11 @@ def merge_pitching_batting_leagueaverage_and_weather_datasets(stitched_dataset, 
     # Attatch the weather information # THIS MAY HAVE TO CHANGE WITH WEATHER CODING UPDATES
     print("Attatching Original Weather Information to Final Dataset")
     weather_columns = ["temprature", "Left to Right", "Right to Left", "in", "out", "zero"]
+
+
+    
+
+    # CAN WE DO THIS BASED ON JUST THE INDEX TO SPEED IT UP???
     stitched_dataset["batting_stats"][weather_columns] = stitched_dataset["batting_stats"].apply(lambda x: cleaned_raw_pitches[x.pitbat][cleaned_raw_pitches[x.pitbat].game_pk == x.game_pk].iloc[0][weather_columns] if len(cleaned_raw_pitches[x.pitbat][cleaned_raw_pitches[x.pitbat].game_pk == x.game_pk]) > 0 else pd.Series({x:None for x in weather_columns}) , axis=1)
     
     # Convert temprature to temprature squared and drop regular temprature from the DataFrame
@@ -1006,3 +1020,51 @@ def calculate_league_averages(neutralized_unrolled_data): # The input here is th
             league_average_plays_dict[pitbat_combo][play] = play_share
 
     return league_average_plays_dict
+
+
+############################### CREATING FINAL DATASETS  ###############################
+
+def _make_final_dataset(cleaned_pitches, coef_dicts):
+    neutralized_data = neutralize_stats(cleaned_pitches, coef_dicts)
+
+    rolled_stats = roll_neutralized_batting_stats(neutralized_data)
+
+    stitched_stats = stitch_pitbat_stats(rolled_stats)
+
+    final_dataset = merge_pitching_batting_leagueaverage_and_weather_datasets(stitched_stats, cleaned_pitches)
+
+    return final_dataset
+
+def build_training_dataset(raw_pitches, suffix, save_cleaned=False, save_coefficients=False,
+                           save_dataset=False, save_training_dataset=False):
+
+    # Clean raw pitches and return a cleaned pitches DataFrame
+    cleaned_data = clean_raw_pitches(raw_pitches)
+    return cleaned_data
+
+
+
+
+    # if save_cleaned: 
+    #     # Convert the dict of dataframes to json so it can be uploaded
+    #     cleaned_data_json = {df_name: df.to_json() for df_name, df in cleaned_data.items()}
+    #     cf.CloudHelper(obj=cleaned_data_json).upload_to_cloud('simulation_training_data', f"cleaned_data_{suffix}")
+
+    # # Create a neutralization coefficients dictionary
+    # coef_dicts = build_neutralization_coefficient_dictionaries(cleaned_data)
+    # if save_coefficients: cf.CloudHelper(obj=coef_dicts).upload_to_cloud('simulation_training_data', f"neutralization_coefficients_dict_{suffix}")
+
+    # # Build the final dataset, and machine readable training set
+    # final_dataset = _make_final_dataset(cleaned_data, coef_dicts)
+    # if save_dataset: cf.CloudHelper(obj=final_dataset).upload_to_cloud('simulation_training_data', f"Final Datasets/final_dataset_{suffix}")
+    
+    # training_dataset = make_dataset_machine_trainable(final_dataset)
+
+    # if save_training_dataset:
+    #     # First convert the dict of nd.arrays to json for uploading
+    #     list_dataset = {name: array.tolist() for name, array in training_dataset.items()}
+    #     training_dataset_json = {array_name: json.dumps(array) for array_name, array in list_dataset.items()}
+    #     cf.CloudHelper(obj=training_dataset_json).upload_to_cloud('simulation_training_data', f"Training Datasets/training_dataset{suffix}")
+
+
+
