@@ -93,7 +93,7 @@ def _convert_wind_direction(all_plays_by_pitbat_combo, wind_column = "wind_direc
 def _pull_full_weather(game_date, home_team, away_team, total_weather_df):
     try:
         #value = total_weather_df[(total_weather_df.date.values == game_date) & ((total_weather_df.home_team.values == constants.WEATHER_NAME_CONVERSIONS[home_team])|(total_weather_df.home_team.values == constants.WEATHER_NAME_CONVERSIONS[away_team]))].weather.iloc[0]                                                                                       
-        value = total_weather_df[(total_weather_df.date.values == game_date) & ((total_weather_df.home_team.values == home_team)|(total_weather_df.home_team.values == away_team))].weather.iloc[0]                                                                                       
+        value = total_weather_df[(total_weather_df.date.values == game_date) & ((total_weather_df.converted_home_team.values == home_team)|(total_weather_df.converted_home_team.values == away_team))].weather.iloc[0]                                                                                       
         return value
     except:
         return 'Start Time Weather: 72° F, Wind 0mph, In Dome.'
@@ -453,22 +453,22 @@ def clean_raw_pitches(raw_pitches_df: pd.DataFrame) -> pd.DataFrame:
     total_weather_df = pd.concat([df for df in weather_dictionary_holder.values()])
 
     # Create a new column with the converted home team names in total_weather_df
-    total_weather_df['converted_home_team'] = total_weather_df['home_team'].map(constants.WEATHER_NAME_CONVERSIONS)
+    total_weather_df['converted_home_team'] = total_weather_df['home_team'].map({v: k for k, v in constants.WEATHER_NAME_CONVERSIONS.items()})
     # Similarly, create a new column for the away team if necessary
-    total_weather_df['converted_away_team'] = total_weather_df['away_team'].map(constants.WEATHER_NAME_CONVERSIONS)
+    total_weather_df['converted_away_team'] = total_weather_df['away_team'].map({v: k for k, v in constants.WEATHER_NAME_CONVERSIONS.items()})
     
     # Drop the old columns
     total_weather_df = total_weather_df.drop(columns=['home_team', 'away_team'])
 
     # Attatch the raw weather string to the the play by matching the date and home team -- we've also added the away team clause to not throw errors on the limited number of cames coded wrong where in pitches data the teams didn't play eachother and were both on the road
     final_plays["full_weather"] = final_plays.apply(lambda x: _pull_full_weather(x.game_date, x.home_team, x.away_team, total_weather_df), axis = 1)  
-
+    
     # Break up the full weather info into temp, wind speed, and wind direction seperately
     final_plays["temprature"] = final_plays.full_weather.apply(lambda x: int(x.split(": ")[1].split("°")[0]))
     final_plays["wind_speed"] = final_plays.full_weather.apply(lambda x: int(x.split("Wind ")[1].split("mph")[0]) if "Wind" in x else 0)
     final_plays["wind_direction"] = final_plays.full_weather.apply(_get_wind_direction)
     final_plays["wind_direction"] = final_plays.wind_direction.apply(lambda x: x.split(", ")[0] if x != None else x)
-
+    
     # Convert the wind direction text column into a one-hot encoded set of columns multiplied by the wind speed (yields individual columns representing total wind speed)
     final_plays = _convert_wind_direction(final_plays, final_plays.wind_direction)
 
@@ -478,10 +478,10 @@ def clean_raw_pitches(raw_pitches_df: pd.DataFrame) -> pd.DataFrame:
     ballpark_info = pd.read_excel("Data/non_mlb_data/Ballpark Info.xlsx", header=2)[["Stadium", "Team", "Start Date", "End Date"]]
   
     ## Create a column for the ballpark based on the date and home_team of each pitch
-    final_plays['temporary_year'] = pd.to_datetime(final_plays.game_date.str[:4], format='%Y')
+    final_plays['temporary_year'] = pd.to_numeric(final_plays.game_date.str[:4])
 
     # First, ensure the 'End Date' column is of the correct type
-    ballpark_info['End Date'] = pd.to_datetime(ballpark_info['End Date'])
+    ballpark_info['End Date'] = pd.to_numeric(ballpark_info['End Date'])
 
     # Merge the DataFrames based on the 'home_team'
     merged_df = final_plays.merge(
@@ -493,7 +493,7 @@ def clean_raw_pitches(raw_pitches_df: pd.DataFrame) -> pd.DataFrame:
 
     # Now filter based on the condition of 'End Date'
     final_plays["ballpark"] = merged_df[
-        merged_df["End Date"] > merged_df["temporary_year"]
+        merged_df["End Date"] >= merged_df["temporary_year"]
     ]["Stadium"]
 
     # Fill NaN values if needed
@@ -1076,19 +1076,15 @@ def build_training_dataset(raw_pitches, suffix, save_cleaned=False, save_coeffic
 
     # Clean raw pitches and return a cleaned pitches DataFrame
     cleaned_data = clean_raw_pitches(raw_pitches)
-    return cleaned_data
 
+    if save_cleaned: 
+        # Convert the dict of dataframes to json so it can be uploaded
+        cleaned_data_json = {df_name: df.to_json() for df_name, df in cleaned_data.items()}
+        cf.CloudHelper(obj=cleaned_data_json).upload_to_cloud('simulation_training_data', f"cleaned_data_{suffix}")
 
-
-
-    # if save_cleaned: 
-    #     # Convert the dict of dataframes to json so it can be uploaded
-    #     cleaned_data_json = {df_name: df.to_json() for df_name, df in cleaned_data.items()}
-    #     cf.CloudHelper(obj=cleaned_data_json).upload_to_cloud('simulation_training_data', f"cleaned_data_{suffix}")
-
-    # # Create a neutralization coefficients dictionary
-    # coef_dicts = build_neutralization_coefficient_dictionaries(cleaned_data)
-    # if save_coefficients: cf.CloudHelper(obj=coef_dicts).upload_to_cloud('simulation_training_data', f"neutralization_coefficients_dict_{suffix}")
+    # Create a neutralization coefficients dictionary
+    coef_dicts = build_neutralization_coefficient_dictionaries(cleaned_data)
+    if save_coefficients: cf.CloudHelper(obj=coef_dicts).upload_to_cloud('simulation_training_data', f"neutralization_coefficients_dict_{suffix}")
 
     # # Build the final dataset, and machine readable training set
     # final_dataset = _make_final_dataset(cleaned_data, coef_dicts)

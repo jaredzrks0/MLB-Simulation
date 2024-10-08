@@ -32,19 +32,18 @@ if __name__ == '__main__':
     # with open('Data/test_data_2016-18-long', 'wb') as file:
     #     pkl.dump(raw_pitches, file)
 
-    with open("Data/test_data_2016-18-long", 'rb') as file:
+    with open("Data/test_data_2016-18", 'rb') as file:
         raw_pitches = pkl.load(file)
 
     save = False
 
     print("Starting Time Test:")
     start = time.time()
-
-    print("\n Running Original Build")
+    print("\nRunning Original Build")
     build1.build_training_dataset(raw_pitches, suffix='2016-2018', save_cleaned=save, save_coefficients=save, save_dataset=save, save_training_dataset=save)
     print(f"Original Code Run Time: {round(time.time() - start, 2)} seconds.")
 
-    s=time.time()
+    start=time.time()
     print("\nRunning Updated Code")
     build2.build_training_dataset(raw_pitches, suffix='2016-2018', save_cleaned=save, save_coefficients=save, save_dataset=save, save_training_dataset=save)
     print(f"Updated Code Run Time: {round(time.time() - start, 2)} seconds.")
