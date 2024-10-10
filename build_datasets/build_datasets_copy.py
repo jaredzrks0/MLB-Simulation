@@ -1,5 +1,5 @@
 import constants
-
+import time
 import pandas as pd
 import numpy as np
 from scipy import stats
@@ -553,7 +553,7 @@ def _insert_game_play_shares(all_plays_by_pitbat_combo: dict) -> dict:
             game_play_shares[pitbat_combo][game] = game_df
 
             # Update the counter and reprint to inform user of the current position
-            if n%3000 == 0:
+            if n%10000 == 0:
                 print("Calculating The Play Share by Play Type for Each Game. There are {}K Instances Remaining".format(round((sum([len(all_plays_by_pitbat_combo[x].game_pk.unique()) for x in constants.HAND_COMBOS])-n)/1000),6))
             n+= 1
         clear_output(wait = True)
@@ -580,7 +580,7 @@ def _insert_missing_game_play_shares(weather_regression_data: dict, hand_combos:
     for pitbat_combo in constants.HAND_COMBOS:
         for game in weather_regression_data[pitbat_combo].game_pk.unique():
             n += 1
-            if n%3000 == 0:
+            if n%10000 == 0:
                 print("Filling in the values for the game_play_share variable for games without the play (0). There are {}K Instances Remaining".format(round((sum([len(weather_regression_data[x].game_pk.unique()) for x in constants.HAND_COMBOS])-n)/1000),6))
             clear_output(wait = True)
             
@@ -835,8 +835,6 @@ def roll_neutralized_batting_stats(neutralized_stats):
     rolling_factored_pitching_stats = {}
 
     for pitbat_combo in constants.HAND_COMBOS:
-        print("Rolling Batting and Pitching Stats {}".format(pitbat_combo))
-        clear_output(wait=True)
 
         # Set up dictionaries to house everything
         rolling_factored_batting_stats[pitbat_combo] = {}
@@ -851,35 +849,39 @@ def roll_neutralized_batting_stats(neutralized_stats):
     ######################### APPLY NEUTRALIZED FACTORS TO UNDERLYING STATS #########################
 
         for play in constants.PLAY_TYPES:
-            # Multiply the situation impact by a binary vector for play outcomes with a 1 for the correct play
-            batter_df["season_{}".format(play)] = batter_df.apply(lambda x: 1*x.play_value if x.play_type==play else 0, axis = 1)
-            batter_df["month_{}".format(play)] = batter_df["season_{}".format(play)]
-            # Multiply the situation impact by a binary vector for play outcomes with a 1 for the correct play
-            pitcher_df["season_{}".format(play)] = pitcher_df.apply(lambda x: 1*x.play_value if x.play_type==play else 0, axis = 1)
-            pitcher_df["month_{}".format(play)] = pitcher_df["season_{}".format(play)]
+            # Vectorized calculation for batter_df
+            batter_df[f"season_{play}"] = (batter_df['play_type'] == play) * batter_df['play_value']
+            batter_df[f"month_{play}"] = batter_df[f"season_{play}"]
             
+            # Vectorized calculation for pitcher_df
+            pitcher_df[f"season_{play}"] = (pitcher_df['play_type'] == play) * pitcher_df['play_value']
+            pitcher_df[f"month_{play}"] = pitcher_df[f"season_{play}"]
+
     ######################### ROLL NEUTRALIZED STATS #########################
 
-        # Roll batting stats on a season and montly basis and convert to a dict for speed. Additionally, the closed input offsets the data by 1 row down, so that the values represent the percentages INCOMING to the plate appearence
-        season_rolled_batter_df = batter_df[['batter'] + [col for col in batter_df if "season_" in col]].copy().groupby(by="batter").rolling(window=504, closed="left", min_periods=0).sum().to_dict()
-        month_rolled_batter_df = batter_df[['batter'] + [col for col in batter_df if "month_" in col]].copy().groupby(by="batter").rolling(window=75, closed="left", min_periods=0).sum().to_dict()
+        # Roll batting stats on a season and monthly basis, and convert to a dict for speed later. Additionally, the closed input offsets the data by 1 row down, so that the values represent the percentages INCOMING to the plate appearence
+        season_rolled_batter_df = batter_df[['batter'] + [col for col in batter_df if "season_" in col]].copy().groupby(by="batter").rolling(window=504, closed="left", min_periods=0).sum().reset_index()
+        month_rolled_batter_df = batter_df[['batter'] + [col for col in batter_df if "month_" in col]].copy().groupby(by="batter").rolling(window=75, closed="left", min_periods=0).sum().reset_index()
 
         # Roll pitching stats on a season and montly basis and convert to a dict for speed
-        season_rolled_pitcher_df = pitcher_df[['pitcher'] + [col for col in pitcher_df if "season_" in col]].copy().groupby(by="pitcher").rolling(window=504, closed="left", min_periods=0).sum().to_dict()
-        month_rolled_pitcher_df = pitcher_df[['pitcher'] + [col for col in pitcher_df if "month_" in col]].copy().groupby(by="pitcher").rolling(window=75, closed="left", min_periods=0).sum().to_dict()
-        
+        season_rolled_pitcher_df = pitcher_df[['pitcher'] + [col for col in pitcher_df if "season_" in col]].copy().groupby(by="pitcher").rolling(window=504, closed="left", min_periods=0).sum().reset_index()
+        month_rolled_pitcher_df = pitcher_df[['pitcher'] + [col for col in pitcher_df if "month_" in col]].copy().groupby(by="pitcher").rolling(window=75, closed="left", min_periods=0).sum().reset_index()
+
         # Assign the rolled values from players' stats back to the player DataFrames by pulling the data from the dictionaries
         for play in constants.PLAY_TYPES:
-            batter_df["season_{}".format(play)] = batter_df.apply(lambda x: season_rolled_batter_df["season_{}".format(play)][(x.batter, x.name)], axis = 1)
-            batter_df["month_{}".format(play)] = batter_df.apply(lambda x: month_rolled_batter_df["month_{}".format(play)][(x.batter, x.name)], axis = 1)
+            # batter_df["season_{}".format(play)] = batter_df.apply(lambda x: season_rolled_batter_df["season_{}".format(play)][(x.batter, x.name)], axis = 1)
+            # batter_df["month_{}".format(play)] = batter_df.apply(lambda x: month_rolled_batter_df["month_{}".format(play)][(x.batter, x.name)], axis = 1)
             
-            pitcher_df["season_{}".format(play)] = pitcher_df.apply(lambda x: season_rolled_pitcher_df["season_{}".format(play)][(x.pitcher, x.name)], axis = 1)
-            pitcher_df["month_{}".format(play)] = pitcher_df.apply(lambda x: month_rolled_pitcher_df["month_{}".format(play)][(x.pitcher, x.name)], axis = 1)
-        
-    ######################### REPERCENTAGE NEUTRALIZED STATS (TO SUM % TO 1.0) #########################
+            # pitcher_df["season_{}".format(play)] = pitcher_df.apply(lambda x: season_rolled_pitcher_df["season_{}".format(play)][(x.pitcher, x.name)], axis = 1)
+            # pitcher_df["month_{}".format(play)] = pitcher_df.apply(lambda x: month_rolled_pitcher_df["month_{}".format(play)][(x.pitcher, x.name)], axis = 1)
 
-        print("Repercentaging Rolled Batting Stats {}".format(pitbat_combo))
-        clear_output(wait=True)
+            batter_df[f"season_{play}"] = season_rolled_batter_df[f"season_{play}"]
+            batter_df[f"month_{play}"] = month_rolled_batter_df[f"month_{play}"]
+            
+            pitcher_df[f"season_{play}"] = season_rolled_pitcher_df[f"season_{play}"]
+            pitcher_df[f"month_{play}"] = month_rolled_pitcher_df[f"month_{play}"]
+
+    ######################### REPERCENTAGE NEUTRALIZED STATS (TO SUM % TO 1.0) #########################
 
         # Repercentage factored batting stats percentage to sum to 1 because they don't necessarily after neutralization
         season_columns = ["season_{}".format(play) for play in constants.PLAY_TYPES]
@@ -889,16 +891,14 @@ def roll_neutralized_batting_stats(neutralized_stats):
         batter_df[month_columns] = batter_df[month_columns].div(batter_df[month_columns].sum())
         # batter_df[season_columns] = batter_df.apply(lambda row: pd.Series([row[f"season_{play_type}"]/row[season_columns].sum() for play_type in list(constants.PLAY_TYPES)]) if row[season_columns].sum() > 0 else pd.Series([0 for play_type in constants.PLAY_TYPES]), axis=1)
         # batter_df[month_columns] = batter_df.apply(lambda row: pd.Series([row[f"month_{play_type}"]/row[month_columns].sum() for play_type in list(constants.PLAY_TYPES)]) if row[month_columns].sum() > 0 else pd.Series([0 for play_type in constants.PLAY_TYPES]), axis=1)
-       
-        
-        print("Repercentaging Rolled Pitching Stats {}".format(pitbat_combo))
+
         # Repercentage factored pitching stats percentage to sum to 1 because they don't necessarily after neutralization
         
         pitcher_df[season_columns] = pitcher_df[season_columns].div(pitcher_df[season_columns].sum())
         pitcher_df[month_columns] = pitcher_df[month_columns].div(pitcher_df[month_columns].sum())
         # pitcher_df[season_columns] = pitcher_df.apply(lambda row: pd.Series([row[f"season_{play_type}"]/row[season_columns].sum() for play_type in list(constants.PLAY_TYPES)]) if row[season_columns].sum() > 0 else pd.Series([0 for play_type in constants.PLAY_TYPES]), axis=1)
         # pitcher_df[month_columns] = pitcher_df.apply(lambda row: pd.Series([row[f"month_{play_type}"]/row[month_columns].sum() for play_type in list(constants.PLAY_TYPES)]) if row[month_columns].sum() > 0 else pd.Series([0 for play_type in constants.PLAY_TYPES]), axis=1)
-  
+
   ######################### STORE FINAL DATAFRAMES #########################
 
         # Place the final rolling factored batting stats DataFrame into the storage dictionary
@@ -940,17 +940,35 @@ def merge_pitching_batting_leagueaverage_and_weather_datasets(stitched_dataset, 
 
     # Attatch the weather information # THIS MAY HAVE TO CHANGE WITH WEATHER CODING UPDATES
     print("Attatching Original Weather Information to Final Dataset")
+
+    # Step 1: Flatten the cleaned_raw_pitches dictionary into a single DataFrame
+    weather_data_list = []
+    for pitbat, df in cleaned_raw_pitches.items():
+        df_copy = df.copy()
+        df_copy['pitbat'] = pitbat  # Add the pitbat identifier to the DataFrame
+        weather_data_list.append(df_copy)
+
+    # Combine all the DataFrames into one
+    all_weather_data = pd.concat(weather_data_list)
+
+    # Select only necessary columns (game_pk and weather_columns)
     weather_columns = ["temprature", "Left to Right", "Right to Left", "in", "out", "zero"]
+    all_weather_data = all_weather_data[['pitbat', 'game_pk'] + weather_columns]
 
+    # Step 2: Merge the weather data back into the main dataset
+    stitched_dataset["batting_stats"] = pd.merge(
+        stitched_dataset["batting_stats"],
+        all_weather_data,
+        on=['pitbat', 'game_pk'],  # Merge on both pitbat and game_pk
+        how='left'  # Use left join to preserve rows from batting_stats
+    )
 
-    
-
-    # CAN WE DO THIS BASED ON JUST THE INDEX TO SPEED IT UP???
-    stitched_dataset["batting_stats"][weather_columns] = stitched_dataset["batting_stats"].apply(lambda x: cleaned_raw_pitches[x.pitbat][cleaned_raw_pitches[x.pitbat].game_pk == x.game_pk].iloc[0][weather_columns] if len(cleaned_raw_pitches[x.pitbat][cleaned_raw_pitches[x.pitbat].game_pk == x.game_pk]) > 0 else pd.Series({x:None for x in weather_columns}) , axis=1)
+    # Now, any missing weather data will automatically be filled with NaN (which you can convert to None if needed)
+    stitched_dataset["batting_stats"][weather_columns] = stitched_dataset["batting_stats"][weather_columns].fillna(None)
     
     # Convert temprature to temprature squared and drop regular temprature from the DataFrame
     stitched_dataset['batting_stats']["temprature_sq"] = stitched_dataset['batting_stats'].temprature.apply(lambda x: x**2)
-    stitched_dataset['batting_stats'] = stitched_dataset['batting_stats'].drop(columns=['temprature'])
+    stitched_dataset['batting_stats'] = stitched_dataset['batting_stats'].drop(columns=['temprature_x', 'temprature_y'])
 
     ########################## MERGE WITH LEAGUE AVERAGE INFO ##########################
 
@@ -1061,14 +1079,20 @@ def calculate_league_averages(neutralized_unrolled_data): # The input here is th
 ############################### CREATING FINAL DATASETS  ###############################
 
 def _make_final_dataset(cleaned_pitches, coef_dicts):
+    print("Starting Timer")
+    s = time.time()
     neutralized_data = neutralize_stats(cleaned_pitches, coef_dicts)
-
+    # print(time.time() - s)
+    # s = time.time()
     rolled_stats = roll_neutralized_batting_stats(neutralized_data)
-
+    # print(time.time() - s)
+    # s = time.time()
     stitched_stats = stitch_pitbat_stats(rolled_stats)
-
+    # print(time.time() - s)
+    # s = time.time()
     final_dataset = merge_pitching_batting_leagueaverage_and_weather_datasets(stitched_stats, cleaned_pitches)
-
+    # print(time.time() - s)
+    # s = time.time()
     return final_dataset
 
 def build_training_dataset(raw_pitches, suffix, save_cleaned=False, save_coefficients=False,
@@ -1086,9 +1110,9 @@ def build_training_dataset(raw_pitches, suffix, save_cleaned=False, save_coeffic
     coef_dicts = build_neutralization_coefficient_dictionaries(cleaned_data)
     if save_coefficients: cf.CloudHelper(obj=coef_dicts).upload_to_cloud('simulation_training_data', f"neutralization_coefficients_dict_{suffix}")
 
-    # # Build the final dataset, and machine readable training set
-    # final_dataset = _make_final_dataset(cleaned_data, coef_dicts)
-    # if save_dataset: cf.CloudHelper(obj=final_dataset).upload_to_cloud('simulation_training_data', f"Final Datasets/final_dataset_{suffix}")
+    # Build the final dataset, and machine readable training set
+    final_dataset = _make_final_dataset(cleaned_data, coef_dicts)
+    if save_dataset: cf.CloudHelper(obj=final_dataset).upload_to_cloud('simulation_training_data', f"Final Datasets/final_dataset_{suffix}")
     
     # training_dataset = make_dataset_machine_trainable(final_dataset)
 

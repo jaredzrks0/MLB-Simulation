@@ -1,5 +1,9 @@
 import requests
+import pickle
+
+
 from bs4 import BeautifulSoup as bs
+
 
 def mlb_scrape(url='https://www.mlb.com/starting-lineups'):
     response = requests.get(url)
