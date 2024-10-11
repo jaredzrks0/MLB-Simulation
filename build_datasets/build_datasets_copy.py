@@ -7,10 +7,12 @@ import sys
 import json
 import re
 
+
 from sklearn.linear_model import LinearRegression
 from sklearn.preprocessing import OneHotEncoder, StandardScaler
 from sklearn.compose import ColumnTransformer
 from sklearn.pipeline import Pipeline
+from datetime import timedelta
 
 from cloud_modules import cloud_functions as cf # type: ignore
 
@@ -932,10 +934,9 @@ def merge_pitching_batting_leagueaverage_and_weather_datasets(stitched_dataset, 
     # Label all the columns as pitcher related in the df for when they are merged later. Then define the set of columns we will need to merge with the total batting stats
     stitched_dataset["pitching_stats"].columns = ["pitcher_" + col for col in stitched_dataset["pitching_stats"].columns]
     pitching_columns_to_add = ["pitcher_season_{}".format(play) for play in constants.PLAY_TYPES] + ["pitcher_month_{}".format(play) for play in constants.PLAY_TYPES]
-    
+
     # Attatch the pitching stats to the batting stats. This works in concept because the indexes remain the same even as the DFs are separated
     stitched_dataset["batting_stats"][pitching_columns_to_add] = stitched_dataset["pitching_stats"][pitching_columns_to_add]
-    
     ########################## MERGE WITH WEATHER ##########################
 
     # Attatch the weather information # THIS MAY HAVE TO CHANGE WITH WEATHER CODING UPDATES
@@ -953,57 +954,75 @@ def merge_pitching_batting_leagueaverage_and_weather_datasets(stitched_dataset, 
 
     # Select only necessary columns (game_pk and weather_columns)
     weather_columns = ["temprature", "Left to Right", "Right to Left", "in", "out", "zero"]
-    all_weather_data = all_weather_data[['pitbat', 'game_pk'] + weather_columns]
-
+    all_weather_data = all_weather_data[['pitbat', 'game_pk'] + weather_columns].drop_duplicates(subset=['game_pk'])
     # Step 2: Merge the weather data back into the main dataset
     stitched_dataset["batting_stats"] = pd.merge(
         stitched_dataset["batting_stats"],
         all_weather_data,
-        on=['pitbat', 'game_pk'],  # Merge on both pitbat and game_pk
+        on=['game_pk'],  # Merge on both pitbat and game_pk
         how='left'  # Use left join to preserve rows from batting_stats
     )
 
-    # Now, any missing weather data will automatically be filled with NaN (which you can convert to None if needed)
-    stitched_dataset["batting_stats"][weather_columns] = stitched_dataset["batting_stats"][weather_columns].fillna(None)
-    
-    # Convert temprature to temprature squared and drop regular temprature from the DataFrame
-    stitched_dataset['batting_stats']["temprature_sq"] = stitched_dataset['batting_stats'].temprature.apply(lambda x: x**2)
-    stitched_dataset['batting_stats'] = stitched_dataset['batting_stats'].drop(columns=['temprature_x', 'temprature_y'])
+    # Rename the play_type_x column so that it can be referenced later on.
+    stitched_dataset['batting_stats'].rename(columns = {'play_type_x':'play_type', 'pitbat_x':'pitbat'}, inplace=True)
 
+    # Now, any missing weather data will automatically be filled with NaN (which you can convert to None if needed)
+    weather_columns.remove('temprature')
+    weather_columns.extend(['temprature_x', 'temprature_y'])
+    #stitched_dataset["batting_stats"][weather_columns] = stitched_dataset["batting_stats"][weather_columns].fillna(value = None)
+
+    # Convert temprature to temprature squared and drop regular temprature from the DataFrame
+    stitched_dataset['batting_stats']["temprature_sq"] = stitched_dataset['batting_stats'].temprature_x.apply(lambda x: x**2)
+    stitched_dataset['batting_stats'] = stitched_dataset['batting_stats'].drop(columns=['temprature_x', 'temprature_y'])
     ########################## MERGE WITH LEAGUE AVERAGE INFO ##########################
 
-    # First filter the league average info from the last month and season for later calculation of averages (in the for loop)
-    print("Attatching League Average Information")
-    league_averages = {}
+    # Convert game_date to datetime if it's not already
+    stitched_dataset["batting_stats"]["game_date"] = pd.to_datetime(stitched_dataset["batting_stats"]["game_date"])
+
+    # Precompute last month and last season league averages for each pitbat combo
+    league_averages_list = []
+
+    # Iterate over each pitbat combo
     for pitbat_combo in constants.HAND_COMBOS:
-        league_averages[pitbat_combo] = {}
         pitbat_df = stitched_dataset["batting_stats"][stitched_dataset["batting_stats"].pitbat == pitbat_combo].copy()
+        
+        # Iterate over unique dates
         for date in pitbat_df.game_date.unique():
-            league_averages[pitbat_combo][date] = {"season":{}, "month":{}}
-            season_ago = str(int(date.split("-")[0]) - 1) + date.split("-")[1] + date.split("-")[2]
-            month_ago = date.split("-")[0] + str(int(date.split("-")[1]) - 1) + date.split("-")[2] #We can just subtract one from the month because baseball is not played in January
+            season_ago = date - timedelta(days=365)  # 1 year ago
+            month_ago = date - timedelta(days=30)    # 1 month ago
             
+            # Filter data within the last month and season
             season_pitbat_date_df = pitbat_df[(pitbat_df.game_date < date) & (pitbat_df.game_date > season_ago)]
             month_pitbat_date_df = pitbat_df[(pitbat_df.game_date < date) & (pitbat_df.game_date > month_ago)]
             
-            # Now calculate the play data for the league (average) over the last month and season, and store in a dictionary for quicker stitching later on
+            # Precompute league averages for each play type and store them in a list
             for play in constants.PLAY_TYPES:
-                season_play_average = len(season_pitbat_date_df[season_pitbat_date_df.play_type == play])/len(season_pitbat_date_df) if len(season_pitbat_date_df) > 0 else None
-                month_play_average = len(month_pitbat_date_df[month_pitbat_date_df.play_type == play])/len(month_pitbat_date_df) if len(month_pitbat_date_df) > 0 else None
+                season_play_average = len(season_pitbat_date_df[season_pitbat_date_df.play_type == play]) / len(season_pitbat_date_df) if len(season_pitbat_date_df) > 0 else None
+                month_play_average = len(month_pitbat_date_df[month_pitbat_date_df.play_type == play]) / len(month_pitbat_date_df) if len(month_pitbat_date_df) else None
                 
-                league_averages[pitbat_combo][date]["season"][play] = season_play_average
-                league_averages[pitbat_combo][date]["month"][play] = season_play_average
+                league_averages_list.append({
+                    "pitbat": pitbat_combo,
+                    "game_date": date,
+                    "play_type": play,
+                    "season_play_average": season_play_average,
+                    "month_play_average": month_play_average
+                })
 
-    # Retreive the league average of each play type from the last month and season for every date/play, and stitch it into the row on the main DataFrame
-    for play in constants.PLAY_TYPES:
-        stitched_dataset["batting_stats"]["season_league_average_{}".format(play)] = stitched_dataset["batting_stats"].apply(lambda x: league_averages[x.pitbat][x.game_date]["season"][play], axis=1)
-        stitched_dataset["batting_stats"]["month_league_average_{}".format(play)] = stitched_dataset["batting_stats"].apply(lambda x: league_averages[x.pitbat][x.game_date]["month"][play], axis=1)
+    # Create a DataFrame from the list of league averages
+    league_averages_df = pd.DataFrame(league_averages_list)
 
+    # Merge precomputed league averages back into the main DataFrame
+    stitched_dataset["batting_stats"] = pd.merge(
+        stitched_dataset["batting_stats"],
+        league_averages_df,
+        on=["pitbat", "game_date", "play_type"],
+        how="left"
+    )
 
     ########################## ADD FINAL TOUCHES ##########################
     
     # Remove unwanted columns
-    stitched_dataset['batting_stats'] = stitched_dataset['batting_stats'][[col for col in stitched_dataset['batting_stats'].columns if col not in ["game_pk", "batter", "pitcher", "wind_speed", "wind_direction", "year"]]]
+    stitched_dataset['batting_stats'] = stitched_dataset['batting_stats'][[col for col in stitched_dataset['batting_stats'].columns if col not in ["game_pk", "batter", "pitcher", "wind_speed", "wind_direction", "year", 'pitbat_y']]]
     
     # Finally, add a column that is a binary 'is on base' in case we want to run a two step prediction algorithm with step one on base and step two what kind of on base or out
     stitched_dataset["batting_stats"]["is_on_base"] = stitched_dataset["batting_stats"].play_type.apply(lambda x: 1 if x in ["single", "double", "triple", "home_run", "walk", "intent_walk"] else 0)
@@ -1014,6 +1033,7 @@ def merge_pitching_batting_leagueaverage_and_weather_datasets(stitched_dataset, 
 
 
 def make_dataset_machine_trainable(final_dataset):
+    
     # Convert some binary type text columns into actual binary
     for col in ["on_3b", "on_2b", "on_1b"]:
         final_dataset[col] = final_dataset[col].apply(lambda x: 1 if pd.isna(x) == False else 0) 
@@ -1021,8 +1041,9 @@ def make_dataset_machine_trainable(final_dataset):
     
     # Drop NA rows and games before May for training purposes
     final_dataset = final_dataset.dropna()
-    final_dataset = final_dataset[final_dataset.game_date.apply(lambda x: int(x.split("-")[1])) >= 5].reset_index(drop=True)
-    
+
+    final_dataset = final_dataset[final_dataset.game_date.apply(lambda x: x.month >= 5)].reset_index(drop=True)
+
     # Drop the game date column. We couldn't do this earlier because we needed it to filter out early season games in the line before
     final_dataset.drop(columns = ["game_date"], inplace=True)
 
@@ -1030,10 +1051,12 @@ def make_dataset_machine_trainable(final_dataset):
     y_play = final_dataset.play_type
     y_onbase = final_dataset.is_on_base
 
+    # And drop the columns
     final_dataset.drop(columns = ["play_type", "is_on_base"], inplace = True)
 
     # Create a pipeline for scaling, and encoding (and eventually PCA if needed)
     numeric_features = [col for col in final_dataset if col not in ["ballpark", "pitbat"]]
+
     numeric_transformer = Pipeline(
         steps=[("scaler", StandardScaler())]
     )
@@ -1079,20 +1102,14 @@ def calculate_league_averages(neutralized_unrolled_data): # The input here is th
 ############################### CREATING FINAL DATASETS  ###############################
 
 def _make_final_dataset(cleaned_pitches, coef_dicts):
-    print("Starting Timer")
-    s = time.time()
     neutralized_data = neutralize_stats(cleaned_pitches, coef_dicts)
-    # print(time.time() - s)
-    # s = time.time()
+
     rolled_stats = roll_neutralized_batting_stats(neutralized_data)
-    # print(time.time() - s)
-    # s = time.time()
+
     stitched_stats = stitch_pitbat_stats(rolled_stats)
-    # print(time.time() - s)
-    # s = time.time()
+
     final_dataset = merge_pitching_batting_leagueaverage_and_weather_datasets(stitched_stats, cleaned_pitches)
-    # print(time.time() - s)
-    # s = time.time()
+    
     return final_dataset
 
 def build_training_dataset(raw_pitches, suffix, save_cleaned=False, save_coefficients=False,
@@ -1113,14 +1130,15 @@ def build_training_dataset(raw_pitches, suffix, save_cleaned=False, save_coeffic
     # Build the final dataset, and machine readable training set
     final_dataset = _make_final_dataset(cleaned_data, coef_dicts)
     if save_dataset: cf.CloudHelper(obj=final_dataset).upload_to_cloud('simulation_training_data', f"Final Datasets/final_dataset_{suffix}")
-    
-    # training_dataset = make_dataset_machine_trainable(final_dataset)
 
-    # if save_training_dataset:
-    #     # First convert the dict of nd.arrays to json for uploading
-    #     list_dataset = {name: array.tolist() for name, array in training_dataset.items()}
-    #     training_dataset_json = {array_name: json.dumps(array) for array_name, array in list_dataset.items()}
-    #     cf.CloudHelper(obj=training_dataset_json).upload_to_cloud('simulation_training_data', f"Training Datasets/training_dataset{suffix}")
+    training_dataset = make_dataset_machine_trainable(final_dataset)
 
+    if save_training_dataset:
+        # First convert the dict of nd.arrays to json for uploading
+        list_dataset = {name: array.tolist() for name, array in training_dataset.items()}
+        training_dataset_json = {array_name: json.dumps(array) for array_name, array in list_dataset.items()}
+        cf.CloudHelper(obj=training_dataset_json).upload_to_cloud('simulation_training_data', f"Training Datasets/training_dataset{suffix}")
+
+    return training_dataset
 
 

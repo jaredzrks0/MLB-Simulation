@@ -45,7 +45,7 @@ if __name__ == '__main__':
 
     start=time.time()
     print("\nRunning Updated Code")
-    build2.build_training_dataset(raw_pitches, suffix='2016-2018', save_cleaned=save, save_coefficients=save, save_dataset=save, save_training_dataset=save)
+    x = build2.build_training_dataset(raw_pitches, suffix='2016-2018', save_cleaned=save, save_coefficients=save, save_dataset=save, save_training_dataset=save)
     print(f"Updated Code Run Time: {round(time.time() - start, 2)} seconds.")
 
     
