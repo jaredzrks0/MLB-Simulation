@@ -12,7 +12,7 @@ from sklearn.preprocessing import OneHotEncoder, StandardScaler
 from sklearn.compose import ColumnTransformer
 from sklearn.pipeline import Pipeline
 
-from cloud_modules import cloud_functions as cf # type: ignore
+from gcloud_helper import cloud_functions as cf # type: ignore
 
 from IPython.display import clear_output
 

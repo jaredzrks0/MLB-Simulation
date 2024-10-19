@@ -14,7 +14,7 @@ from sklearn.compose import ColumnTransformer
 from sklearn.pipeline import Pipeline
 from datetime import timedelta
 
-from cloud_modules import cloud_functions as cf # type: ignore
+from gcloud_helper import cloud_functions as cf # type: ignore
 
 from IPython.display import clear_output
 
@@ -869,13 +869,8 @@ def roll_neutralized_batting_stats(neutralized_stats):
         season_rolled_pitcher_df = pitcher_df[['pitcher'] + [col for col in pitcher_df if "season_" in col]].copy().groupby(by="pitcher").rolling(window=504, closed="left", min_periods=0).sum().reset_index()
         month_rolled_pitcher_df = pitcher_df[['pitcher'] + [col for col in pitcher_df if "month_" in col]].copy().groupby(by="pitcher").rolling(window=75, closed="left", min_periods=0).sum().reset_index()
 
-        # Assign the rolled values from players' stats back to the player DataFrames by pulling the data from the dictionaries
+        # Assign the rolled values from players' stats back to the player DataFrames 
         for play in constants.PLAY_TYPES:
-            # batter_df["season_{}".format(play)] = batter_df.apply(lambda x: season_rolled_batter_df["season_{}".format(play)][(x.batter, x.name)], axis = 1)
-            # batter_df["month_{}".format(play)] = batter_df.apply(lambda x: month_rolled_batter_df["month_{}".format(play)][(x.batter, x.name)], axis = 1)
-            
-            # pitcher_df["season_{}".format(play)] = pitcher_df.apply(lambda x: season_rolled_pitcher_df["season_{}".format(play)][(x.pitcher, x.name)], axis = 1)
-            # pitcher_df["month_{}".format(play)] = pitcher_df.apply(lambda x: month_rolled_pitcher_df["month_{}".format(play)][(x.pitcher, x.name)], axis = 1)
 
             batter_df[f"season_{play}"] = season_rolled_batter_df[f"season_{play}"]
             batter_df[f"month_{play}"] = month_rolled_batter_df[f"month_{play}"]
@@ -889,8 +884,9 @@ def roll_neutralized_batting_stats(neutralized_stats):
         season_columns = ["season_{}".format(play) for play in constants.PLAY_TYPES]
         month_columns = ["month_{}".format(play) for play in constants.PLAY_TYPES]
         
-        batter_df[season_columns] = batter_df[season_columns].div(batter_df[season_columns].sum())
-        batter_df[month_columns] = batter_df[month_columns].div(batter_df[month_columns].sum())
+        batter_df[season_columns] = batter_df[season_columns].div(batter_df[season_columns].sum(axis=1), axis=0)
+        batter_df[month_columns] = batter_df[month_columns].div(batter_df[month_columns].sum(axis=1), axis=0)
+
         # batter_df[season_columns] = batter_df.apply(lambda row: pd.Series([row[f"season_{play_type}"]/row[season_columns].sum() for play_type in list(constants.PLAY_TYPES)]) if row[season_columns].sum() > 0 else pd.Series([0 for play_type in constants.PLAY_TYPES]), axis=1)
         # batter_df[month_columns] = batter_df.apply(lambda row: pd.Series([row[f"month_{play_type}"]/row[month_columns].sum() for play_type in list(constants.PLAY_TYPES)]) if row[month_columns].sum() > 0 else pd.Series([0 for play_type in constants.PLAY_TYPES]), axis=1)
 
@@ -1131,14 +1127,14 @@ def build_training_dataset(raw_pitches, suffix, save_cleaned=False, save_coeffic
     final_dataset = _make_final_dataset(cleaned_data, coef_dicts)
     if save_dataset: cf.CloudHelper(obj=final_dataset).upload_to_cloud('simulation_training_data', f"Final Datasets/final_dataset_{suffix}")
 
-    training_dataset = make_dataset_machine_trainable(final_dataset)
+    # training_dataset = make_dataset_machine_trainable(final_dataset)
 
-    if save_training_dataset:
-        # First convert the dict of nd.arrays to json for uploading
-        list_dataset = {name: array.tolist() for name, array in training_dataset.items()}
-        training_dataset_json = {array_name: json.dumps(array) for array_name, array in list_dataset.items()}
-        cf.CloudHelper(obj=training_dataset_json).upload_to_cloud('simulation_training_data', f"Training Datasets/training_dataset{suffix}")
+    # if save_training_dataset:
+    #     # First convert the dict of nd.arrays to json for uploading
+    #     list_dataset = {name: array.tolist() for name, array in training_dataset.items()}
+    #     training_dataset_json = {array_name: json.dumps(array) for array_name, array in list_dataset.items()}
+    #     cf.CloudHelper(obj=training_dataset_json).upload_to_cloud('simulation_training_data', f"Training Datasets/training_dataset{suffix}")
 
-    return training_dataset
+    return final_dataset
 
 
