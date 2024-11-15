@@ -1,16 +1,19 @@
 import constants
-
+import time
 import pandas as pd
 import numpy as np
+import pickle as pkl
 from scipy import stats
 import sys
 import json
 import re
 
+
 from sklearn.linear_model import LinearRegression
 from sklearn.preprocessing import OneHotEncoder, StandardScaler
 from sklearn.compose import ColumnTransformer
 from sklearn.pipeline import Pipeline
+from datetime import timedelta
 
 from gcloud_helper import cloud_functions as cf # type: ignore
 
@@ -92,7 +95,8 @@ def _convert_wind_direction(all_plays_by_pitbat_combo, wind_column = "wind_direc
 
 def _pull_full_weather(game_date, home_team, away_team, total_weather_df):
     try:
-        value = total_weather_df[(total_weather_df.date.values == game_date) & ((total_weather_df.home_team.values == constants.WEATHER_NAME_CONVERSIONS[home_team])|(total_weather_df.home_team.values == constants.WEATHER_NAME_CONVERSIONS[away_team]))].weather.iloc[0]                                                                                       
+        #value = total_weather_df[(total_weather_df.date.values == game_date) & ((total_weather_df.home_team.values == constants.WEATHER_NAME_CONVERSIONS[home_team])|(total_weather_df.home_team.values == constants.WEATHER_NAME_CONVERSIONS[away_team]))].weather.iloc[0]                                                                                       
+        value = total_weather_df[(total_weather_df.date.values == game_date) & ((total_weather_df.converted_home_team.values == home_team)|(total_weather_df.converted_home_team.values == away_team))].weather.iloc[0]                                                                                       
         return value
     except:
         return 'Start Time Weather: 72° F, Wind 0mph, In Dome.'
@@ -413,7 +417,7 @@ def clean_raw_pitches(raw_pitches_df: pd.DataFrame) -> pd.DataFrame:
         - A cleaned dataframe of pitches resulting in plays."""
     print("Cleaning Data")
     import time
-    s = time.time()
+
     # Filter down to only regular season games
     raw_pitches_df = raw_pitches_df[raw_pitches_df.game_type == "R"]
 
@@ -442,19 +446,32 @@ def clean_raw_pitches(raw_pitches_df: pd.DataFrame) -> pd.DataFrame:
     ############ ATTATCH WEATHER INFORMATION TO EACH PITCH ############
 
     # Build a combined weather dataframe by concatanating all yearly weather dataframes belonging to years present in the plays dataframe
-    years = list(final_plays.game_date.apply(lambda x: x.split("-")[0]).value_counts().index)
+    years = list(final_plays.game_date.apply(lambda x: x.split("-")[0]).unique())\
+
     weather_dictionary_holder = {}
+
     for year in years:
         yearly_weather_df = cf.CloudHelper().download_from_cloud("proreference_weather_data/weather_data_{}".format(year))# if this fails we might not have that years weather in cloud storage
         weather_dictionary_holder[year] = yearly_weather_df
     total_weather_df = pd.concat([df for df in weather_dictionary_holder.values()])
+
+    # Create a new column with the converted home team names in total_weather_df
+    total_weather_df['converted_home_team'] = total_weather_df['home_team'].map({v: k for k, v in constants.WEATHER_NAME_CONVERSIONS.items()})
+    # Similarly, create a new column for the away team if necessary
+    total_weather_df['converted_away_team'] = total_weather_df['away_team'].map({v: k for k, v in constants.WEATHER_NAME_CONVERSIONS.items()})
+    
+    # Drop the old columns
+    total_weather_df = total_weather_df.drop(columns=['home_team', 'away_team'])
+
     # Attatch the raw weather string to the the play by matching the date and home team -- we've also added the away team clause to not throw errors on the limited number of cames coded wrong where in pitches data the teams didn't play eachother and were both on the road
-    final_plays["full_weather"] = final_plays.apply(lambda x: _pull_full_weather(x.game_date, x.home_team, x.away_team, total_weather_df), axis = 1)                                                                                        
+    final_plays["full_weather"] = final_plays.apply(lambda x: _pull_full_weather(x.game_date, x.home_team, x.away_team, total_weather_df), axis = 1)  
+    
     # Break up the full weather info into temp, wind speed, and wind direction seperately
     final_plays["temprature"] = final_plays.full_weather.apply(lambda x: int(x.split(": ")[1].split("°")[0]))
     final_plays["wind_speed"] = final_plays.full_weather.apply(lambda x: int(x.split("Wind ")[1].split("mph")[0]) if "Wind" in x else 0)
     final_plays["wind_direction"] = final_plays.full_weather.apply(_get_wind_direction)
     final_plays["wind_direction"] = final_plays.wind_direction.apply(lambda x: x.split(", ")[0] if x != None else x)
+    
     # Convert the wind direction text column into a one-hot encoded set of columns multiplied by the wind speed (yields individual columns representing total wind speed)
     final_plays = _convert_wind_direction(final_plays, final_plays.wind_direction)
 
@@ -465,7 +482,7 @@ def clean_raw_pitches(raw_pitches_df: pd.DataFrame) -> pd.DataFrame:
 
     # Create a column for the ballpark based on the date and home_team of each pitch
     final_plays["ballpark"] = final_plays.apply(lambda x: ballpark_info[(ballpark_info.Team.values == x.home_team) & (ballpark_info["End Date"].values > int(x.game_date.split("-")[0]))].Stadium.iloc[0],axis=1)
-    
+
     ############ Divide pitches by pitbat combos in 4 dataframes ############
     all_plays_by_pitbat_combo = _segregate_plays_by_pitbat_combo(final_plays)
 
@@ -517,7 +534,7 @@ def _insert_game_play_shares(all_plays_by_pitbat_combo: dict) -> dict:
             game_play_shares[pitbat_combo][game] = game_df
 
             # Update the counter and reprint to inform user of the current position
-            if n%3000 == 0:
+            if n%10000 == 0:
                 print("Calculating The Play Share by Play Type for Each Game. There are {}K Instances Remaining".format(round((sum([len(all_plays_by_pitbat_combo[x].game_pk.unique()) for x in constants.HAND_COMBOS])-n)/1000),6))
             n+= 1
         clear_output(wait = True)
@@ -544,7 +561,7 @@ def _insert_missing_game_play_shares(weather_regression_data: dict, hand_combos:
     for pitbat_combo in constants.HAND_COMBOS:
         for game in weather_regression_data[pitbat_combo].game_pk.unique():
             n += 1
-            if n%3000 == 0:
+            if n%10000 == 0:
                 print("Filling in the values for the game_play_share variable for games without the play (0). There are {}K Instances Remaining".format(round((sum([len(weather_regression_data[x].game_pk.unique()) for x in constants.HAND_COMBOS])-n)/1000),6))
             clear_output(wait = True)
             
@@ -799,8 +816,6 @@ def roll_neutralized_batting_stats(neutralized_stats):
     rolling_factored_pitching_stats = {}
 
     for pitbat_combo in constants.HAND_COMBOS:
-        print("Rolling Batting and Pitching Stats {}".format(pitbat_combo))
-        clear_output(wait=True)
 
         # Set up dictionaries to house everything
         rolling_factored_batting_stats[pitbat_combo] = {}
@@ -815,54 +830,52 @@ def roll_neutralized_batting_stats(neutralized_stats):
     ######################### APPLY NEUTRALIZED FACTORS TO UNDERLYING STATS #########################
 
         for play in constants.PLAY_TYPES:
-            # Multiply the situation impact by a binary vector for play outcomes with a 1 for the correct play
-            batter_df["season_{}".format(play)] = batter_df.apply(lambda x: 1*x.play_value if x.play_type==play else 0, axis = 1)
-            batter_df["month_{}".format(play)] = batter_df["season_{}".format(play)]
-            # Multiply the situation impact by a binary vector for play outcomes with a 1 for the correct play
-            pitcher_df["season_{}".format(play)] = pitcher_df.apply(lambda x: 1*x.play_value if x.play_type==play else 0, axis = 1)
-            pitcher_df["month_{}".format(play)] = pitcher_df["season_{}".format(play)]
+            # Vectorized calculation for batter_df
+            batter_df[f"season_{play}"] = (batter_df['play_type'] == play) * batter_df['play_value']
+            batter_df[f"month_{play}"] = batter_df[f"season_{play}"]
             
+            # Vectorized calculation for pitcher_df
+            pitcher_df[f"season_{play}"] = (pitcher_df['play_type'] == play) * pitcher_df['play_value']
+            pitcher_df[f"month_{play}"] = pitcher_df[f"season_{play}"]
+
     ######################### ROLL NEUTRALIZED STATS #########################
 
-        # Roll batting stats on a season and montly basis and convert to a dict for speed. Additionally, the closed input offsets the data by 1 row down, so that the values represent the percentages INCOMING to the plate appearence
-        season_rolled_batter_df = batter_df[['batter'] + [col for col in batter_df if "season_" in col]].copy().groupby(by="batter").rolling(window=504, closed="left", min_periods=0).sum().to_dict()
-        month_rolled_batter_df = batter_df[['batter'] + [col for col in batter_df if "month_" in col]].copy().groupby(by="batter").rolling(window=75, closed="left", min_periods=0).sum().to_dict()
+        # Roll batting stats on a season and monthly basis, and convert to a dict for speed later. Additionally, the closed input offsets the data by 1 row down, so that the values represent the percentages INCOMING to the plate appearence
+        season_rolled_batter_df = batter_df[['batter'] + [col for col in batter_df if "season_" in col]].copy().groupby(by="batter").rolling(window=504, closed="left", min_periods=0).sum().reset_index()
+        month_rolled_batter_df = batter_df[['batter'] + [col for col in batter_df if "month_" in col]].copy().groupby(by="batter").rolling(window=75, closed="left", min_periods=0).sum().reset_index()
 
         # Roll pitching stats on a season and montly basis and convert to a dict for speed
-        season_rolled_pitcher_df = pitcher_df[['pitcher'] + [col for col in pitcher_df if "season_" in col]].copy().groupby(by="pitcher").rolling(window=504, closed="left", min_periods=0).sum().to_dict()
-        month_rolled_pitcher_df = pitcher_df[['pitcher'] + [col for col in pitcher_df if "month_" in col]].copy().groupby(by="pitcher").rolling(window=75, closed="left", min_periods=0).sum().to_dict()
-        
-        # Assign the rolled values from players' stats back to the player DataFrames by pulling the data from the dictionaries
-        for play in constants.PLAY_TYPES:
-            batter_df["season_{}".format(play)] = batter_df.apply(lambda x: season_rolled_batter_df["season_{}".format(play)][(x.batter, x.name)], axis = 1)
-            batter_df["month_{}".format(play)] = batter_df.apply(lambda x: month_rolled_batter_df["month_{}".format(play)][(x.batter, x.name)], axis = 1)
-            
-            pitcher_df["season_{}".format(play)] = pitcher_df.apply(lambda x: season_rolled_pitcher_df["season_{}".format(play)][(x.pitcher, x.name)], axis = 1)
-            pitcher_df["month_{}".format(play)] = pitcher_df.apply(lambda x: month_rolled_pitcher_df["month_{}".format(play)][(x.pitcher, x.name)], axis = 1)
-        
-    ######################### REPERCENTAGE NEUTRALIZED STATS (TO SUM % TO 1.0) #########################
+        season_rolled_pitcher_df = pitcher_df[['pitcher'] + [col for col in pitcher_df if "season_" in col]].copy().groupby(by="pitcher").rolling(window=504, closed="left", min_periods=0).sum().reset_index()
+        month_rolled_pitcher_df = pitcher_df[['pitcher'] + [col for col in pitcher_df if "month_" in col]].copy().groupby(by="pitcher").rolling(window=75, closed="left", min_periods=0).sum().reset_index()
 
-        print("Repercentaging Rolled Batting Stats {}".format(pitbat_combo))
-        clear_output(wait=True)
+        # Assign the rolled values from players' stats back to the player DataFrames 
+        for play in constants.PLAY_TYPES:
+
+            batter_df[f"season_{play}"] = season_rolled_batter_df[f"season_{play}"]
+            batter_df[f"month_{play}"] = month_rolled_batter_df[f"month_{play}"]
+            
+            pitcher_df[f"season_{play}"] = season_rolled_pitcher_df[f"season_{play}"]
+            pitcher_df[f"month_{play}"] = month_rolled_pitcher_df[f"month_{play}"]
+
+    ######################### REPERCENTAGE NEUTRALIZED STATS (TO SUM % TO 1.0) #########################
 
         # Repercentage factored batting stats percentage to sum to 1 because they don't necessarily after neutralization
         season_columns = ["season_{}".format(play) for play in constants.PLAY_TYPES]
         month_columns = ["month_{}".format(play) for play in constants.PLAY_TYPES]
         
-        batter_df[season_columns] = batter_df[season_columns].div(batter_df[season_columns].sum())
-        batter_df[month_columns] = batter_df[month_columns].div(batter_df[month_columns].sum())
+        batter_df[season_columns] = batter_df[season_columns].div(batter_df[season_columns].sum(axis=1), axis=0)
+        batter_df[month_columns] = batter_df[month_columns].div(batter_df[month_columns].sum(axis=1), axis=0)
+
         # batter_df[season_columns] = batter_df.apply(lambda row: pd.Series([row[f"season_{play_type}"]/row[season_columns].sum() for play_type in list(constants.PLAY_TYPES)]) if row[season_columns].sum() > 0 else pd.Series([0 for play_type in constants.PLAY_TYPES]), axis=1)
         # batter_df[month_columns] = batter_df.apply(lambda row: pd.Series([row[f"month_{play_type}"]/row[month_columns].sum() for play_type in list(constants.PLAY_TYPES)]) if row[month_columns].sum() > 0 else pd.Series([0 for play_type in constants.PLAY_TYPES]), axis=1)
-       
-        
-        print("Repercentaging Rolled Pitching Stats {}".format(pitbat_combo))
+
         # Repercentage factored pitching stats percentage to sum to 1 because they don't necessarily after neutralization
         
         pitcher_df[season_columns] = pitcher_df[season_columns].div(pitcher_df[season_columns].sum())
         pitcher_df[month_columns] = pitcher_df[month_columns].div(pitcher_df[month_columns].sum())
         # pitcher_df[season_columns] = pitcher_df.apply(lambda row: pd.Series([row[f"season_{play_type}"]/row[season_columns].sum() for play_type in list(constants.PLAY_TYPES)]) if row[season_columns].sum() > 0 else pd.Series([0 for play_type in constants.PLAY_TYPES]), axis=1)
         # pitcher_df[month_columns] = pitcher_df.apply(lambda row: pd.Series([row[f"month_{play_type}"]/row[month_columns].sum() for play_type in list(constants.PLAY_TYPES)]) if row[month_columns].sum() > 0 else pd.Series([0 for play_type in constants.PLAY_TYPES]), axis=1)
-  
+
   ######################### STORE FINAL DATAFRAMES #########################
 
         # Place the final rolling factored batting stats DataFrame into the storage dictionary
@@ -896,60 +909,95 @@ def merge_pitching_batting_leagueaverage_and_weather_datasets(stitched_dataset, 
     # Label all the columns as pitcher related in the df for when they are merged later. Then define the set of columns we will need to merge with the total batting stats
     stitched_dataset["pitching_stats"].columns = ["pitcher_" + col for col in stitched_dataset["pitching_stats"].columns]
     pitching_columns_to_add = ["pitcher_season_{}".format(play) for play in constants.PLAY_TYPES] + ["pitcher_month_{}".format(play) for play in constants.PLAY_TYPES]
-    
+
     # Attatch the pitching stats to the batting stats. This works in concept because the indexes remain the same even as the DFs are separated
     stitched_dataset["batting_stats"][pitching_columns_to_add] = stitched_dataset["pitching_stats"][pitching_columns_to_add]
-    
     ########################## MERGE WITH WEATHER ##########################
 
     # Attatch the weather information # THIS MAY HAVE TO CHANGE WITH WEATHER CODING UPDATES
     print("Attatching Original Weather Information to Final Dataset")
+
+    # Step 1: Flatten the cleaned_raw_pitches dictionary into a single DataFrame
+    weather_data_list = []
+    for pitbat, df in cleaned_raw_pitches.items():
+        df_copy = df.copy()
+        df_copy['pitbat'] = pitbat  # Add the pitbat identifier to the DataFrame
+        weather_data_list.append(df_copy)
+
+    # Combine all the DataFrames into one
+    all_weather_data = pd.concat(weather_data_list)
+
+    # Select only necessary columns (game_pk and weather_columns)
     weather_columns = ["temprature", "Left to Right", "Right to Left", "in", "out", "zero"]
+    all_weather_data = all_weather_data[['pitbat', 'game_pk'] + weather_columns].drop_duplicates(subset=['game_pk'])
+    # Step 2: Merge the weather data back into the main dataset
+    stitched_dataset["batting_stats"] = pd.merge(
+        stitched_dataset["batting_stats"],
+        all_weather_data,
+        on=['game_pk'],  # Merge on both pitbat and game_pk
+        how='left'  # Use left join to preserve rows from batting_stats
+    )
 
+    # Rename the play_type_x column so that it can be referenced later on.
+    stitched_dataset['batting_stats'].rename(columns = {'play_type_x':'play_type', 'pitbat_x':'pitbat'}, inplace=True)
 
-    
+    # Now, any missing weather data will automatically be filled with NaN (which you can convert to None if needed)
+    weather_columns.remove('temprature')
+    weather_columns.extend(['temprature_x', 'temprature_y'])
+    #stitched_dataset["batting_stats"][weather_columns] = stitched_dataset["batting_stats"][weather_columns].fillna(value = None)
 
-    # CAN WE DO THIS BASED ON JUST THE INDEX TO SPEED IT UP???
-    stitched_dataset["batting_stats"][weather_columns] = stitched_dataset["batting_stats"].apply(lambda x: cleaned_raw_pitches[x.pitbat][cleaned_raw_pitches[x.pitbat].game_pk == x.game_pk].iloc[0][weather_columns] if len(cleaned_raw_pitches[x.pitbat][cleaned_raw_pitches[x.pitbat].game_pk == x.game_pk]) > 0 else pd.Series({x:None for x in weather_columns}) , axis=1)
-    
     # Convert temprature to temprature squared and drop regular temprature from the DataFrame
-    stitched_dataset['batting_stats']["temprature_sq"] = stitched_dataset['batting_stats'].temprature.apply(lambda x: x**2)
-    stitched_dataset['batting_stats'] = stitched_dataset['batting_stats'].drop(columns=['temprature'])
-
+    stitched_dataset['batting_stats']["temprature_sq"] = stitched_dataset['batting_stats'].temprature_x.apply(lambda x: x**2)
+    stitched_dataset['batting_stats'] = stitched_dataset['batting_stats'].drop(columns=['temprature_x', 'temprature_y'])
     ########################## MERGE WITH LEAGUE AVERAGE INFO ##########################
 
-    # First filter the league average info from the last month and season for later calculation of averages (in the for loop)
-    print("Attatching League Average Information")
-    league_averages = {}
+    # Convert game_date to datetime if it's not already
+    stitched_dataset["batting_stats"]["game_date"] = pd.to_datetime(stitched_dataset["batting_stats"]["game_date"])
+
+    # Precompute last month and last season league averages for each pitbat combo
+    league_averages_list = []
+
+    # Iterate over each pitbat combo
     for pitbat_combo in constants.HAND_COMBOS:
-        league_averages[pitbat_combo] = {}
         pitbat_df = stitched_dataset["batting_stats"][stitched_dataset["batting_stats"].pitbat == pitbat_combo].copy()
+        
+        # Iterate over unique dates
         for date in pitbat_df.game_date.unique():
-            league_averages[pitbat_combo][date] = {"season":{}, "month":{}}
-            season_ago = str(int(date.split("-")[0]) - 1) + date.split("-")[1] + date.split("-")[2]
-            month_ago = date.split("-")[0] + str(int(date.split("-")[1]) - 1) + date.split("-")[2] #We can just subtract one from the month because baseball is not played in January
+            season_ago = date - timedelta(days=365)  # 1 year ago
+            month_ago = date - timedelta(days=30)    # 1 month ago
             
+            # Filter data within the last month and season
             season_pitbat_date_df = pitbat_df[(pitbat_df.game_date < date) & (pitbat_df.game_date > season_ago)]
             month_pitbat_date_df = pitbat_df[(pitbat_df.game_date < date) & (pitbat_df.game_date > month_ago)]
             
-            # Now calculate the play data for the league (average) over the last month and season, and store in a dictionary for quicker stitching later on
+            # Precompute league averages for each play type and store them in a list
             for play in constants.PLAY_TYPES:
-                season_play_average = len(season_pitbat_date_df[season_pitbat_date_df.play_type == play])/len(season_pitbat_date_df) if len(season_pitbat_date_df) > 0 else None
-                month_play_average = len(month_pitbat_date_df[month_pitbat_date_df.play_type == play])/len(month_pitbat_date_df) if len(month_pitbat_date_df) > 0 else None
+                season_play_average = len(season_pitbat_date_df[season_pitbat_date_df.play_type == play]) / len(season_pitbat_date_df) if len(season_pitbat_date_df) > 0 else None
+                month_play_average = len(month_pitbat_date_df[month_pitbat_date_df.play_type == play]) / len(month_pitbat_date_df) if len(month_pitbat_date_df) else None
                 
-                league_averages[pitbat_combo][date]["season"][play] = season_play_average
-                league_averages[pitbat_combo][date]["month"][play] = season_play_average
+                league_averages_list.append({
+                    "pitbat": pitbat_combo,
+                    "game_date": date,
+                    "play_type": play,
+                    "season_play_average": season_play_average,
+                    "month_play_average": month_play_average
+                })
 
-    # Retreive the league average of each play type from the last month and season for every date/play, and stitch it into the row on the main DataFrame
-    for play in constants.PLAY_TYPES:
-        stitched_dataset["batting_stats"]["season_league_average_{}".format(play)] = stitched_dataset["batting_stats"].apply(lambda x: league_averages[x.pitbat][x.game_date]["season"][play], axis=1)
-        stitched_dataset["batting_stats"]["month_league_average_{}".format(play)] = stitched_dataset["batting_stats"].apply(lambda x: league_averages[x.pitbat][x.game_date]["month"][play], axis=1)
+    # Create a DataFrame from the list of league averages
+    league_averages_df = pd.DataFrame(league_averages_list)
 
+    # Merge precomputed league averages back into the main DataFrame
+    stitched_dataset["batting_stats"] = pd.merge(
+        stitched_dataset["batting_stats"],
+        league_averages_df,
+        on=["pitbat", "game_date", "play_type"],
+        how="left"
+    )
 
     ########################## ADD FINAL TOUCHES ##########################
     
     # Remove unwanted columns
-    stitched_dataset['batting_stats'] = stitched_dataset['batting_stats'][[col for col in stitched_dataset['batting_stats'].columns if col not in ["game_pk", "batter", "pitcher", "wind_speed", "wind_direction", "year"]]]
+    stitched_dataset['batting_stats'] = stitched_dataset['batting_stats'][[col for col in stitched_dataset['batting_stats'].columns if col not in ["game_pk", "batter", "pitcher", "wind_speed", "wind_direction", "year", 'pitbat_y']]]
     
     # Finally, add a column that is a binary 'is on base' in case we want to run a two step prediction algorithm with step one on base and step two what kind of on base or out
     stitched_dataset["batting_stats"]["is_on_base"] = stitched_dataset["batting_stats"].play_type.apply(lambda x: 1 if x in ["single", "double", "triple", "home_run", "walk", "intent_walk"] else 0)
@@ -960,6 +1008,7 @@ def merge_pitching_batting_leagueaverage_and_weather_datasets(stitched_dataset, 
 
 
 def make_dataset_machine_trainable(final_dataset):
+    
     # Convert some binary type text columns into actual binary
     for col in ["on_3b", "on_2b", "on_1b"]:
         final_dataset[col] = final_dataset[col].apply(lambda x: 1 if pd.isna(x) == False else 0) 
@@ -967,8 +1016,9 @@ def make_dataset_machine_trainable(final_dataset):
     
     # Drop NA rows and games before May for training purposes
     final_dataset = final_dataset.dropna()
-    final_dataset = final_dataset[final_dataset.game_date.apply(lambda x: int(x.split("-")[1])) >= 5].reset_index(drop=True)
-    
+
+    final_dataset = final_dataset[final_dataset.game_date.apply(lambda x: x.month >= 5)].reset_index(drop=True)
+
     # Drop the game date column. We couldn't do this earlier because we needed it to filter out early season games in the line before
     final_dataset.drop(columns = ["game_date"], inplace=True)
 
@@ -976,10 +1026,12 @@ def make_dataset_machine_trainable(final_dataset):
     y_play = final_dataset.play_type
     y_onbase = final_dataset.is_on_base
 
+    # And drop the columns
     final_dataset.drop(columns = ["play_type", "is_on_base"], inplace = True)
 
     # Create a pipeline for scaling, and encoding (and eventually PCA if needed)
     numeric_features = [col for col in final_dataset if col not in ["ballpark", "pitbat"]]
+
     numeric_transformer = Pipeline(
         steps=[("scaler", StandardScaler())]
     )
@@ -1032,39 +1084,53 @@ def _make_final_dataset(cleaned_pitches, coef_dicts):
     stitched_stats = stitch_pitbat_stats(rolled_stats)
 
     final_dataset = merge_pitching_batting_leagueaverage_and_weather_datasets(stitched_stats, cleaned_pitches)
-
+    
     return final_dataset
 
 def build_training_dataset(raw_pitches, suffix, save_cleaned=False, save_coefficients=False,
-                           save_dataset=False, save_training_dataset=False):
+                           save_dataset=False, save_training_dataset=False, online_save = False, local_save=False):
 
     # Clean raw pitches and return a cleaned pitches DataFrame
     cleaned_data = clean_raw_pitches(raw_pitches)
-    return cleaned_data
+
+    if save_cleaned:
+        if online_save: 
+            # Convert the dict of dataframes to json so it can be uploaded
+            cleaned_data_json = {df_name: df.to_json() for df_name, df in cleaned_data.items()}
+            cf.CloudHelper(obj=cleaned_data_json).upload_to_cloud('simulation_training_data', f"cleaned_data_{suffix}")
+        if local_save:
+            with open(f"Data/cleaned_data_{suffix}", 'wb') as f:
+                pkl.dump(cleaned_data, f)
+
+    # Create a neutralization coefficients dictionary
+    coef_dicts = build_neutralization_coefficient_dictionaries(cleaned_data)
+    if save_coefficients: 
+        if online_save:
+            cf.CloudHelper(obj=coef_dicts).upload_to_cloud('simulation_training_data', f"neutralization_coefficients_dict_{suffix}")
+        if local_save:
+            with open(f"Data/neutralization_coefficients_dict_{suffix}", 'wb') as f:
+                pkl.dump(coef_dicts, f)
 
 
+    # Build the final dataset, and machine readable training set
+    final_dataset = _make_final_dataset(cleaned_data, coef_dicts)
+    if save_dataset:
+        if online_save:
+            cf.CloudHelper(obj=final_dataset).upload_to_cloud('simulation_training_data', f"Final Datasets/final_dataset_{suffix}")
+        if local_save:
+            with open(f"Data/final_dataset_{suffix}", 'wb') as f:
+                pkl.dump(final_dataset, f)
 
 
-    # if save_cleaned: 
-    #     # Convert the dict of dataframes to json so it can be uploaded
-    #     cleaned_data_json = {df_name: df.to_json() for df_name, df in cleaned_data.items()}
-    #     cf.CloudHelper(obj=cleaned_data_json).upload_to_cloud('simulation_training_data', f"cleaned_data_{suffix}")
-
-    # # Create a neutralization coefficients dictionary
-    # coef_dicts = build_neutralization_coefficient_dictionaries(cleaned_data)
-    # if save_coefficients: cf.CloudHelper(obj=coef_dicts).upload_to_cloud('simulation_training_data', f"neutralization_coefficients_dict_{suffix}")
-
-    # # Build the final dataset, and machine readable training set
-    # final_dataset = _make_final_dataset(cleaned_data, coef_dicts)
-    # if save_dataset: cf.CloudHelper(obj=final_dataset).upload_to_cloud('simulation_training_data', f"Final Datasets/final_dataset_{suffix}")
-    
-    # training_dataset = make_dataset_machine_trainable(final_dataset)
-
-    # if save_training_dataset:
-    #     # First convert the dict of nd.arrays to json for uploading
-    #     list_dataset = {name: array.tolist() for name, array in training_dataset.items()}
-    #     training_dataset_json = {array_name: json.dumps(array) for array_name, array in list_dataset.items()}
-    #     cf.CloudHelper(obj=training_dataset_json).upload_to_cloud('simulation_training_data', f"Training Datasets/training_dataset{suffix}")
-
+    training_dataset = make_dataset_machine_trainable(final_dataset)
+    if save_training_dataset:
+        if online_save:
+            # First convert the dict of nd.arrays to json for uploading
+            list_dataset = {name: array.tolist() for name, array in training_dataset.items()}
+            training_dataset_json = {array_name: json.dumps(array) for array_name, array in list_dataset.items()}
+            cf.CloudHelper(obj=training_dataset_json).upload_to_cloud('simulation_training_data', f"Training Datasets/training_dataset{suffix}")
+        if local_save:
+            with open("Data/training_dataset{suffix}", 'wb') as f:
+                pkl.dump(training_dataset, f)
 
 
