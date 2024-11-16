@@ -8,7 +8,7 @@ from gcloud_helper import cloud_functions as cf
 
 # Modules in folder
 import constants
-import build_datasets as bd
+from build_datasets import dataset_builder
 
 import time
 
@@ -27,10 +27,12 @@ if __name__ == '__main__':
 
     save = False
 
-    df = bd.build_training_dataset(raw_pitches, suffix='2016-2018',
+    dataset = dataset_builder()
+
+    df = dataset.build_training_dataset(raw_pitches, suffix='2016-2018',
                                    save_cleaned=save, save_coefficients=save,
                                    save_dataset=save, save_training_dataset=save,
-                                   local_save=True, online_save=False)
+                                   local_save=False, online_save=False)
 
 
     
