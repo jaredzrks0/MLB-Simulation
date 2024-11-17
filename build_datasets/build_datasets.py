@@ -1270,9 +1270,8 @@ class dataset_builder():
             for key, values in merged_data.items()
         ]
 
-        # Convert to DataFrame (optional)
+        # Convert to DataFrame
         league_averages_df = pd.DataFrame(result)
-
 
         # Merge precomputed league averages back into the main DataFrame
         stitched_dataset["batting_stats"] = pd.merge(
@@ -1281,7 +1280,6 @@ class dataset_builder():
             on=["pitbat", "game_date"],
             how="left"
         )
-
         ########################## ADD FINAL TOUCHES ##########################
         
         # Remove unwanted columns
