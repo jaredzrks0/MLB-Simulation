@@ -40,6 +40,8 @@ if __name__ == '__main__':
                        [10, 40, 74, 504]]
     
     for window in rolling_windows:
+        print(window)
+
         # Define the settings for the dataset builder run
         dataset = dataset_builder(rolling_windows=window, verbose=False)
         year_suffix = '2016-2018'
