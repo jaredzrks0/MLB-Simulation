@@ -1254,7 +1254,7 @@ class dataset_builder():
                 for play in constants.PLAY_TYPES:
                     play_averages[play] = {}
                     for rolling_window_length in self.rolling_windows:
-                        play_average = len(date_filtered_league_stats[rolling_window_length][date_filtered_league_stats[rolling_window_length].play_type == play]) / len(date_filtered_league_stats[rolling_window_length]) if len(date_filtered_league_stats[rolling_window_length]) > 0 else 'xx'
+                        play_average = len(date_filtered_league_stats[rolling_window_length][date_filtered_league_stats[rolling_window_length].play_type == play]) / len(date_filtered_league_stats[rolling_window_length]) if len(date_filtered_league_stats[rolling_window_length]) > 0 else None
                         play_averages[play][rolling_window_length] = play_average
                     
                     league_averages_list.append({
