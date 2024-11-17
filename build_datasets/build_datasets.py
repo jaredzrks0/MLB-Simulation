@@ -1467,7 +1467,7 @@ class dataset_builder():
             if online_save:
                 cf.CloudHelper(obj=final_dataset).upload_to_cloud('simulation_training_data', f"Final Datasets/final_dataset_{suffix}")
             if local_save:
-                with open(f"Data/final_dataset_{suffix}", 'wb') as f:
+                with open(f"Data/final_dataset_nonML_{suffix}", 'wb') as f:
                     pkl.dump(final_dataset, f)
 
 
@@ -1479,7 +1479,7 @@ class dataset_builder():
                 training_dataset_json = {array_name: json.dumps(array) for array_name, array in list_dataset.items()}
                 cf.CloudHelper(obj=training_dataset_json).upload_to_cloud('simulation_training_data', f"Training Datasets/training_dataset{suffix}")
             if local_save:
-                with open("Data/training_dataset{suffix}", 'wb') as f:
+                with open(f"Data/final_dataset_ML_{suffix}", 'wb') as f:
                     pkl.dump(training_dataset, f)
 
 

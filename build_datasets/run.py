@@ -25,14 +25,19 @@ if __name__ == '__main__':
     with open(file_str, 'rb') as file:
         raw_pitches = pkl.load(file)
 
-    save = False
+    save = True
 
     dataset = dataset_builder()
 
-    df = dataset.build_training_dataset(raw_pitches, suffix='2016-2018',
+    year_suffix = '2016-2018'
+    rolling_window_suffix = '_'.join([str(pa) for pa in dataset.rolling_windows])
+
+    dataset_suffix = f'{year_suffix}_rolling_windows_{rolling_window_suffix}'
+
+    df = dataset.build_training_dataset(raw_pitches, suffix=dataset_suffix,
                                    save_cleaned=save, save_coefficients=save,
                                    save_dataset=save, save_training_dataset=save,
-                                   local_save=False, online_save=False)
+                                   local_save=True, online_save=False)
 
 
     
