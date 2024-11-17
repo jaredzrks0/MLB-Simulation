@@ -23,8 +23,9 @@ from gcloud_helper import cloud_functions as cf # type: ignore
 
 class dataset_builder():
 
-    def __init__(self, rolling_windows=[75, 504]):
+    def __init__(self, rolling_windows=[75, 504], verbose=False):
         self.rolling_windows = rolling_windows
+        self.verbose = verbose
 
     ######################################################################################
     # Clean Pitch Data
@@ -408,8 +409,9 @@ class dataset_builder():
             dict: A dictionary with 4 keys ("RR", "RL", "LR", "LL"), each containing a DataFrame 
             of pitches divided by batter-pitcher handedness combination.
         """
-
-        print("Cleaning Data")
+        
+        if self.verbose:
+            print("Cleaning Data")
 
         # Filter down to only regular season games
         raw_pitches_df = raw_pitches_df[raw_pitches_df.game_type == "R"]
@@ -526,16 +528,18 @@ class dataset_builder():
                 game_play_shares[pitbat_combo][game] = game_df
 
                 # Update the counter and reprint to inform user of the current position
-                if n%10000 == 0:
-                    print("Calculating The Play Share by Play Type for Each Game. There are {}K Instances Remaining".format(round((sum([len(all_plays_by_pitbat_combo[x].game_pk.unique()) for x in constants.HAND_COMBOS])-n)/1000),6))
-                n+= 1
-            clear_output(wait = True)
+                if self.verbose:
+                    if n%10000 == 0:
+                        print("Calculating The Play Share by Play Type for Each Game. There are {}K Instances Remaining".format(round((sum([len(all_plays_by_pitbat_combo[x].game_pk.unique()) for x in constants.HAND_COMBOS])-n)/1000),6))
+                    n+= 1
+                clear_output(wait = True)
         
         plays_by_pitbat_combo_with_play_shares = {}
         # Add a column in the all plays dfs that is the game play share for the specific game and play type of each play
         for pitbat_combo in constants.HAND_COMBOS:
-            print("Inserting Play Shares by Play Type from Each Game To the All Pitches Data Set. There are {} Pitbat Combos Remaining".format(len(constants.HAND_COMBOS) - constants.HAND_COMBOS.index(pitbat_combo)))
-            clear_output(wait = True)
+            if self.verbose:
+                print("Inserting Play Shares by Play Type from Each Game To the All Pitches Data Set. There are {} Pitbat Combos Remaining".format(len(constants.HAND_COMBOS) - constants.HAND_COMBOS.index(pitbat_combo)))
+                clear_output(wait = True)
             
             # The if statement in the apply below is used to catch the rare case (n=2 PA in 2018-2019) where the game_pk = <NA>. When this happens the play associated is in the game itself, but does not make it into the 
             # game_play_shares dict which throws and error when pulling the play type from the dictionary
@@ -567,10 +571,11 @@ class dataset_builder():
         for pitbat_combo in constants.HAND_COMBOS:
             for game in weather_regression_data[pitbat_combo].game_pk.unique():
                 n += 1
-                if n%10000 == 0:
-                    print("Filling in the values for the game_play_share variable for games without the play (0). There are {}K Instances Remaining".format(round((sum([len(weather_regression_data[x].game_pk.unique()) for x in constants.HAND_COMBOS])-n)/1000),6))
-                clear_output(wait = True)
-                
+                if self.verbose:
+                    if n%10000 == 0:
+                        print("Filling in the values for the game_play_share variable for games without the play (0). There are {}K Instances Remaining".format(round((sum([len(weather_regression_data[x].game_pk.unique()) for x in constants.HAND_COMBOS])-n)/1000),6))
+                    clear_output(wait = True)
+                    
                 # Slice all plays to a specific game
                 df = weather_regression_data[pitbat_combo][weather_regression_data[pitbat_combo].game_pk.values == game].copy()
                 if len(df) < len(play_types): # Check if there are any missing plays and if so, determine how many and which ones
@@ -753,7 +758,9 @@ class dataset_builder():
         """
         
         park_factors_dict = {}
-        print("Calculating Ballpark Factors")
+        
+        if self.verbose:
+            print("Calculating Ballpark Factors")
 
         for pitbat_combo in constants.HAND_COMBOS:
             park_factors_dict[pitbat_combo] = {}
@@ -892,8 +899,9 @@ class dataset_builder():
         Example of usage:
         - Adjust batting stats based on external factors (weather, stadium) for better predictive modeling.
         """
-
-        print("Neutralizing Batting Stats using Weather/Stadium Coefficients")
+        
+        if self.verbose:
+            print("Neutralizing Batting Stats using Weather/Stadium Coefficients")
 
         # Pull the corfficients dictionaries out from the combined dict in the function input
         weather_coefficients = coef_dict['weather_coefficients']
@@ -1176,7 +1184,8 @@ class dataset_builder():
         ########################## MERGE WITH WEATHER ##########################
 
         # Attatch the weather information # THIS MAY HAVE TO CHANGE WITH WEATHER CODING UPDATES
-        print("Attatching Original Weather Information to Final Dataset")
+        if self.verbose:
+            print("Attatching Original Weather Information to Final Dataset")
 
         # Step 1: Flatten the cleaned_raw_pitches dictionary into a single DataFrame
         weather_data_list = []
