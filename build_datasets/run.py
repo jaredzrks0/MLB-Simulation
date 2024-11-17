@@ -27,10 +27,10 @@ if __name__ == '__main__':
         raw_pitches = pkl.load(file)
 
     # Define the different rolling window settings
-    rolling_windows = [[504],
-                       [75],
-                       [75, 504],
-                       [40, 504],
+    rolling_windows = [#[504],
+                       #[75],
+                       #[75, 504],
+                       #[40, 504],
                        [10, 504],
                        [40, 75],
                        [10, 75],
