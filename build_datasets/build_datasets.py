@@ -1,4 +1,4 @@
-import constants
+from build_datasets import constants
 import time
 import pandas as pd
 import numpy as np
@@ -11,14 +11,13 @@ from scipy import stats
 from collections import defaultdict
 from sklearn.linear_model import LinearRegression
 from sklearn.preprocessing import OneHotEncoder, StandardScaler
-from sklearn.compose import ColumnTransformer
+from sklearn.compose import ColumnTransformer, make_column_selector
 from sklearn.pipeline import Pipeline
+from sklearn.decomposition import PCA
 from datetime import timedelta
 from IPython.display import clear_output
 
 from gcloud_helper import cloud_functions as cf # type: ignore
-
-
 
 
 class dataset_builder():
@@ -1014,22 +1013,15 @@ class dataset_builder():
                     batter_df[f"{rolling_window_length}_PA_{play}"] = (batter_df['play_type'] == play) * batter_df['play_value']
                     pitcher_df[f"{rolling_window_length}_PA_{play}"] = (pitcher_df['play_type'] == play) * pitcher_df['play_value']
 
-                # # Vectorized calculation for batter_df
-                # batter_df[f"season_{play}"] = (batter_df['play_type'] == play) * batter_df['play_value']
-                # batter_df[f"month_{play}"] = batter_df[f"season_{play}"]
-                
-                # # Vectorized calculation for pitcher_df
-                # pitcher_df[f"season_{play}"] = (pitcher_df['play_type'] == play) * pitcher_df['play_value']
-                # pitcher_df[f"month_{play}"] = pitcher_df[f"season_{play}"]
 
         ######################### ROLL NEUTRALIZED STATS #########################
             for rolling_window_length in rolling_windows:
                 rolling_batter_df = batter_df[['batter'] + [col for col in batter_df if f"{rolling_window_length}_PA" in col]].copy().groupby(by="batter").rolling(window=rolling_window_length, closed="left", min_periods=0).sum().reset_index()
                 rolling_pitcher_df = pitcher_df[['pitcher'] + [col for col in pitcher_df if f"{rolling_window_length}_PA" in col]].copy().groupby(by="pitcher").rolling(window=rolling_window_length, closed="left", min_periods=0).sum().reset_index()
 
-            for play in constants.PLAY_TYPES:
-                batter_df[f"{rolling_window_length}_PA_{play}"] = rolling_batter_df[f"{rolling_window_length}_PA_{play}"]    
-                pitcher_df[f"{rolling_window_length}_PA_{play}"] = rolling_pitcher_df[f"{rolling_window_length}_PA_{play}"]
+                for play in constants.PLAY_TYPES:
+                    batter_df[f"{rolling_window_length}_PA_{play}"] = rolling_batter_df[f"{rolling_window_length}_PA_{play}"]    
+                    pitcher_df[f"{rolling_window_length}_PA_{play}"] = rolling_pitcher_df[f"{rolling_window_length}_PA_{play}"]
 
         ######################### REPERCENTAGE NEUTRALIZED STATS (TO SUM % TO 1.0) #########################
 
@@ -1129,7 +1121,6 @@ class dataset_builder():
                 
         stitched_data["batting_stats"] = df_batter
         stitched_data["pitching_stats"] = df_pitcher
-        
         return stitched_data
 
 
@@ -1177,10 +1168,8 @@ class dataset_builder():
         # Label all the columns as pitcher related in the df for when they are merged later. Then define the set of columns we will need to merge with the total batting stats
         stitched_dataset["pitching_stats"].columns = ["pitcher_" + col for col in stitched_dataset["pitching_stats"].columns]
         pitching_columns_to_add = [f"pitcher_{rolling_window_length}_PA_{play}" for rolling_window_length in self.rolling_windows for play in constants.PLAY_TYPES]
-
         # Attatch the pitching stats to the batting stats. This works in concept because the indexes remain the same even as the DFs are separated
         stitched_dataset["batting_stats"][pitching_columns_to_add] = stitched_dataset["pitching_stats"][pitching_columns_to_add]
-
         ########################## MERGE WITH WEATHER ##########################
 
         # Attatch the weather information # THIS MAY HAVE TO CHANGE WITH WEATHER CODING UPDATES
@@ -1261,7 +1250,6 @@ class dataset_builder():
                         "pitbat": pitbat_combo,
                         "game_date": date,
                         "play_type": play} |{f"LA_{rolling_window_length}_PA_{play}":play_averages[play][rolling_window_length] for rolling_window_length in self.rolling_windows})
-
         # Create a DataFrame from the list of league averages, by combining all they play types from the league averages list for each gamedate/pitbat combo
         merged_data = defaultdict(dict)
 
@@ -1278,7 +1266,6 @@ class dataset_builder():
             {'pitbat': key[0], 'game_date': key[1], **values}
             for key, values in merged_data.items()
         ]
-
         # Convert to DataFrame
         league_averages_df = pd.DataFrame(result)
 
@@ -1290,27 +1277,34 @@ class dataset_builder():
             how="left"
         )
         ########################## ADD FINAL TOUCHES ##########################
-        
-        # Remove unwanted columns
-        stitched_dataset['batting_stats'] = stitched_dataset['batting_stats'][[col for col in stitched_dataset['batting_stats'].columns if col not in ["game_pk", "batter", "pitcher", "wind_speed", "wind_direction", "year", 'pitbat_y']]]
+        stitched_dataset['batting_stats'] = stitched_dataset['batting_stats'][[col for col in stitched_dataset['batting_stats'].columns if col not in ["game_pk", "wind_speed", "wind_direction", "year", 'pitbat_y']]]
         
         # Finally, add a column that is a binary 'is on base' in case we want to run a two step prediction algorithm with step one on base and step two what kind of on base or out
         stitched_dataset["batting_stats"]["is_on_base"] = stitched_dataset["batting_stats"].play_type.apply(lambda x: 1 if x in ["single", "double", "triple", "home_run", "walk", "intent_walk"] else 0)
 
         clear_output(wait=False)
         
+        # Convert some binary type text columns into actual binary
+        for col in ["on_3b", "on_2b", "on_1b"]:
+            stitched_dataset["batting_stats"][col] = stitched_dataset["batting_stats"][col].apply(lambda x: 1 if pd.isna(x) == False else 0) 
+        
+        stitched_dataset["batting_stats"]["inning_topbot"] = stitched_dataset["batting_stats"]['inning_topbot'].apply(lambda x: 1 if x == "Top" else 0) 
+        
+        # Drop NA rows and games before May for training purposes
+        stitched_dataset["batting_stats"] = stitched_dataset["batting_stats"].dropna()
+        stitched_dataset["batting_stats"] = stitched_dataset["batting_stats"][stitched_dataset["batting_stats"].game_date.apply(lambda x: x.month >= 5)].reset_index(drop=True)
+
+        # Drop the game date column. We couldn't do this earlier because we needed it to filter out early season games in the line before
+        stitched_dataset["batting_stats"].drop(columns = ["game_date"], inplace=True)
         return stitched_dataset['batting_stats']
 
 
-    def make_dataset_machine_trainable(self, final_dataset):
+    def ml_pipe(self, model=None):
         """
         Prepares the given dataset for machine learning by performing the following transformations:
-        1. Converts binary-type text columns into actual binary.
-        2. Drops rows with missing values and filters out games before May for training.
-        3. Removes the 'game_date' column, which is no longer needed.
-        4. Defines the target variables (y_play and y_onbase) and drops them from the dataset.
-        5. Scales numeric features and encodes categorical features (using one-hot encoding).
-        6. Returns the preprocessed dataset along with the target variables.
+        1. Defines the target variables (y_play and y_onbase) and drops them from the dataset.
+        2. Scales numeric features and encodes categorical features (using one-hot encoding).
+        3. Returns the preprocessed dataset along with the target variables.
 
         Args:
             final_dataset (pd.DataFrame): The dataset to be prepared for machine learning, which should
@@ -1328,33 +1322,14 @@ class dataset_builder():
             X = prepared_data["X"]
             y_play = prepared_data["y_play"]
             y_onbase = prepared_data["y_onbase"]
-        """
-        
-        # Convert some binary type text columns into actual binary
-        for col in ["on_3b", "on_2b", "on_1b"]:
-            final_dataset[col] = final_dataset[col].apply(lambda x: 1 if pd.isna(x) == False else 0) 
-        final_dataset["inning_topbot"] = final_dataset[col].apply(lambda x: 1 if x == "Top" else 0) 
-        
-        # Drop NA rows and games before May for training purposes
-        final_dataset = final_dataset.dropna()
+        """     
 
-        final_dataset = final_dataset[final_dataset.game_date.apply(lambda x: x.month >= 5)].reset_index(drop=True)
+        # Create a pipeline for scaling, encoding, and PCA
 
-        # Drop the game date column. We couldn't do this earlier because we needed it to filter out early season games in the line before
-        final_dataset.drop(columns = ["game_date"], inplace=True)
-
-        # Define our y targets and drop them from the dataset
-        y_play = final_dataset.play_type
-        y_onbase = final_dataset.is_on_base
-
-        # And drop the columns
-        final_dataset.drop(columns = ["play_type", "is_on_base"], inplace = True)
-
-        # Create a pipeline for scaling, and encoding (and eventually PCA if needed)
-        numeric_features = [col for col in final_dataset if col not in ["ballpark", "pitbat"]]
 
         numeric_transformer = Pipeline(
-            steps=[("scaler", StandardScaler())]
+            steps=[("scaler", StandardScaler()),
+                   ('dimensionality_reduction', PCA(n_components=.95))]
         )
         
         categorical_features = ["ballpark", "pitbat"]
@@ -1363,11 +1338,12 @@ class dataset_builder():
                 ("encoder", OneHotEncoder(handle_unknown="ignore")),
             ]
         )
-        
+
+        # Create a column transformer
         preprocessor = ColumnTransformer(
             transformers=[
-                ("num", numeric_transformer, numeric_features),
-                ("cat", categorical_transformer, categorical_features),
+                ("num", numeric_transformer, make_column_selector(dtype_include="number")),
+                ("cat", categorical_transformer, make_column_selector(dtype_include="object")),
             ]
         )
 
@@ -1375,9 +1351,15 @@ class dataset_builder():
         steps=[("preprocessor", preprocessor)]
         )
 
-        final_dataset = pipe.fit_transform(final_dataset)
+        if model!=None:
+            
+            pipe = Pipeline([
+                ("preprocessor", preprocessor),
+                ("model",model)
+            ])
 
-        return {"X":final_dataset, "y_play":y_play, "y_onbase":y_onbase}
+
+        return pipe
 
 
     def calculate_league_averages(self, neutralized_unrolled_data): # The input here is the output of the neutralize_stats function
@@ -1423,7 +1405,7 @@ class dataset_builder():
         
         return final_dataset
 
-    def build_training_dataset(self, raw_pitches, suffix, save_cleaned=False, save_coefficients=False,
+    def build_training_dataset(self, raw_pitches, suffix, make_ml, save_cleaned=False, save_coefficients=False,
                             save_dataset=False, save_training_dataset=False, online_save = False, local_save=False):
         """
         Cleans raw pitch data, generates neutralization coefficients, builds a final dataset, and prepares
@@ -1476,17 +1458,4 @@ class dataset_builder():
             if local_save:
                 with open(f"Data/final_dataset_nonML_{suffix}", 'wb') as f:
                     pkl.dump(final_dataset, f)
-
-
-        training_dataset = self.make_dataset_machine_trainable(final_dataset)
-        if save_training_dataset:
-            if online_save:
-                # First convert the dict of nd.arrays to json for uploading
-                list_dataset = {name: array.tolist() for name, array in training_dataset.items()}
-                training_dataset_json = {array_name: json.dumps(array) for array_name, array in list_dataset.items()}
-                cf.CloudHelper(obj=training_dataset_json).upload_to_cloud('simulation_training_data', f"Training Datasets/training_dataset{suffix}")
-            if local_save:
-                with open(f"Data/final_dataset_ML_{suffix}", 'wb') as f:
-                    pkl.dump(training_dataset, f)
-
 

@@ -27,17 +27,18 @@ if __name__ == '__main__':
         raw_pitches = pkl.load(file)
 
     # Define the different rolling window settings
-    rolling_windows = [#[504],
-                       #[75],
-                       #[75, 504],
-                       #[40, 504],
+    rolling_windows = [[504],
+                       [75],
+                       [75, 504],
+                       [40, 504],
                        [10, 504],
                        [40, 75],
                        [10, 75],
                        [40, 75, 504],
                        [10, 40, 504],
                        [10, 75, 504],
-                       [10, 40, 74, 504]]
+                       [10, 40, 75, 504]]
+    
     
     for window in rolling_windows:
         print(window)
@@ -49,9 +50,9 @@ if __name__ == '__main__':
         dataset_suffix = f'{year_suffix}_rolling_windows_{rolling_window_suffix}'
 
         # Create the dataset
-        df = dataset.build_training_dataset(raw_pitches, suffix=dataset_suffix,
+        df = dataset.build_training_dataset(raw_pitches, suffix=dataset_suffix, make_ml=False,
                                     save_cleaned=False, save_coefficients=False,
-                                    save_dataset=False, save_training_dataset=True,
+                                    save_dataset=True, save_training_dataset=True,
                                     local_save=True, online_save=False)
 
 
