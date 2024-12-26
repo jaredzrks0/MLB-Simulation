@@ -1,6 +1,6 @@
 # MLB Game Simulation Project
 
-This project simulates Major League Baseball (MLB) games by using a monte-carlo simulation to simulate individual plate appearances. The ultimate goal is to predict the outcomes of entire games, both in final score, but also expected stat lines for each player.
+This project simulates Major League Baseball (MLB) games by using a Monte-Carlo simulation to simulate individual plate appearances. The ultimate goal is to predict the outcomes of entire games, both in final score, but also expected stat lines for each player.
 
 ## Project Overview
 
