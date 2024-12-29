@@ -440,7 +440,7 @@ class dataset_builder():
         ############ ATTATCH WEATHER INFORMATION TO EACH PITCH ############
 
         # Build a combined weather dataframe by concatanating all yearly weather dataframes belonging to years present in the plays dataframe
-        years = list(final_plays.game_date.apply(lambda x: x.split("-")[0]).unique())\
+        years = list(final_plays.game_date.apply(lambda x: x.split("-")[0]).unique())
 
         weather_dictionary_holder = {}
 
@@ -472,7 +472,11 @@ class dataset_builder():
         ############ ATTATCH BALLPARK INFO TO EACH PITCH ############
 
         # Import file to help connect team and year with a specific ballpark
-        ballpark_info = pd.read_excel("Data/non_mlb_data/Ballpark Info.xlsx", header=2)[["Stadium", "Team", "Start Date", "End Date"]]
+        try:
+            ballpark_info = pd.read_excel("../build_datasets/data/non_mlb_data/Ballpark Info.xlsx", header=2)[["Stadium", "Team", "Start Date", "End Date"]]
+        except:
+            ballpark_info = pd.read_excel("data/non_mlb_data/Ballpark Info.xlsx", header=2)[["Stadium", "Team", "Start Date", "End Date"]]
+            
 
         # Create a column for the ballpark based on the date and home_team of each pitch
         final_plays["ballpark"] = final_plays.apply(lambda x: ballpark_info[(ballpark_info.Team.values == x.home_team) & (ballpark_info["End Date"].values > int(x.game_date.split("-")[0]))].Stadium.iloc[0],axis=1)
@@ -1456,6 +1460,6 @@ class dataset_builder():
             if online_save:
                 cf.CloudHelper(obj=final_dataset).upload_to_cloud('simulation_training_data', f"Final Datasets/final_dataset_{suffix}")
             if local_save:
-                with open(f"Data/final_dataset_nonML_{suffix}", 'wb') as f:
+                with open(f"data/processed_data/final_dataset_nonML_{suffix}", 'wb') as f:
                     pkl.dump(final_dataset, f)
 

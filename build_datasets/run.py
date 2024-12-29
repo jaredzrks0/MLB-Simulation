@@ -21,23 +21,14 @@ warnings.simplefilter("ignore")
 if __name__ == '__main__':
     
     # Pull in the raw pitches for dataset building
-    file_str = "Data/raw_pitches_2016-2018"
+    file_str = "data/raw_pitches_2021-2023"
 
     with open(file_str, 'rb') as file:
         raw_pitches = pkl.load(file)
 
     # Define the different rolling window settings
-    rolling_windows = [[504],
-                       [75],
-                       [75, 504],
-                       [40, 504],
-                       [10, 504],
-                       [40, 75],
-                       [10, 75],
-                       [40, 75, 504],
-                       [10, 40, 504],
-                       [10, 75, 504],
-                       [10, 40, 75, 504]]
+    rolling_windows = [
+                       [20, 45, 75, 504]]
     
     
     for window in rolling_windows:
@@ -45,7 +36,7 @@ if __name__ == '__main__':
 
         # Define the settings for the dataset builder run
         dataset = dataset_builder(rolling_windows=window, verbose=False)
-        year_suffix = '2016-2018'
+        year_suffix = '2021-2023'
         rolling_window_suffix = '_'.join([str(pa) for pa in dataset.rolling_windows])
         dataset_suffix = f'{year_suffix}_rolling_windows_{rolling_window_suffix}'
 
