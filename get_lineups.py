@@ -22,9 +22,14 @@ def mlb_scrape(date):
         location = game.find_all('div', {'class':'starting-lineups__game-location'})[0].text.strip()
 
         home_team = game.find_all('span', {'class': 'starting-lineups__team-name starting-lineups__team-name--home'})[0].text.split()[0]
-        lineups[i]['home_team'] = home_team if home_team not in ["Red", "White"] else home_team + "Sox"
+        home_team = home_team if home_team not in ["Red", "White"] else home_team + " Sox"
+        home_team = home_team if home_team != 'Blue' else home_team + " Jays"
+        lineups[i]['home_team'] = home_team
+
         away_team = game.find_all('span', {'class': 'starting-lineups__team-name starting-lineups__team-name--away'})[0].text.split()[0]
-        lineups[i]['away_team'] = away_team if home_team not in ["Red", "White"] else home_team + "Sox"
+        away_team = away_team if away_team not in ["Red", "White"] else away_team + " Sox"
+        away_team = away_team if away_team != 'Blue' else away_team + " Jays"
+        lineups[i]['away_team'] = away_team
 
         home_lineup = game.find_all('ol', {'class':'starting-lineups__team starting-lineups__team--home'})[0]
         away_lineup = game.find_all('ol', {'class':'starting-lineups__team starting-lineups__team--away'})[0]

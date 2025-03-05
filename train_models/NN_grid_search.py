@@ -22,7 +22,7 @@ from tensorflow.keras.regularizers import l2
 from IPython.display import clear_output
 
 # Local Package Imports
-from build_datasets.build_datasets import dataset_builder
+from build_datasets.dataset_builder import dataset_builder
 import gcloud_helper as gc
 
 # Turn Off Warnings

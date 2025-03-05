@@ -1,16 +1,17 @@
-Metadata-Version: 2.1
-Name: MLB-game-simulation
+Metadata-Version: 2.2
+Name: MLB_game_simulation
 Version: 0.1
 Summary: A brief description of your project
 Home-page: https://github.com/yourusername/my_project
 Author: Jared Zirkes
 Author-email: jaredzrks0@gmail.com
-License: UNKNOWN
-Platform: UNKNOWN
 Classifier: Programming Language :: Python :: 3
 Classifier: License :: OSI Approved :: MIT License
 Classifier: Operating System :: OS Independent
 Requires-Python: >=3.6
-
-UNKNOWN
-
+Dynamic: author
+Dynamic: author-email
+Dynamic: classifier
+Dynamic: home-page
+Dynamic: requires-python
+Dynamic: summary
