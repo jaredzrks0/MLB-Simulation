@@ -53,7 +53,7 @@ def build_daily_stats_dataset(year, month, day, raw_pitches, windows=(20, 45, 75
 
 def build_nightly_stats(year, month, day):
     '''Function to run every night the builds a rolled dataframe for at bat prediction and saves it locally'''
-    raw_pitches = build_raw_pitches_df(year, month, day)
+    raw_pitches = build_raw_pitches_df(year, month, day, years_prior=1)
     daily_stats_for_simulation = build_daily_stats_dataset(year, month, day, raw_pitches)
 
     return daily_stats_for_simulation
@@ -82,4 +82,4 @@ if __name__ == "__main__":
 
     # Save the lineups
     with open(f'../../../../MLB-Data/expected_lineups/expected_lineups_{today}', 'wb') as fpath:
-        pkl.dump(fpath)
+        pkl.dump(lineups, fpath)
