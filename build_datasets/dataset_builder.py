@@ -709,15 +709,12 @@ class DatasetBuilder():
         ######################### ROLL NEUTRALIZED STATS #########################
         
             for rolling_window_length in rolling_windows:
-                if pitbat_combo in ('RR', 'RL'):
-                    batter_df.to_csv(f'/Users/jaredzirkes/Desktop/Python/projects/mlb_simulation/testing{pitbat_combo}.csv')
-                
                 cols = [col for col in batter_df if f"{rolling_window_length}_PA" in col]
-                rolling_batter_df = batter_df[cols + ['batter']].groupby(by="batter").rolling(window=rolling_window_length, closed="left", min_periods=25).sum().reset_index().sort_values(by='level_1').drop(columns=['batter', 'level_1']).reset_index(drop=True)
+                rolling_batter_df = batter_df[cols + ['batter']].groupby(by="batter").rolling(window=rolling_window_length, closed="left", min_periods=min(25, rolling_window_length)).sum().reset_index().sort_values(by='level_1').drop(columns=['batter', 'level_1']).reset_index(drop=True)
                 batter_df.loc[:, cols] = rolling_batter_df.values
 
                 cols = [col for col in pitcher_df if f"{rolling_window_length}_PA" in col]
-                rolling_pitcher_df = pitcher_df[cols + ['pitcher']].groupby(by="pitcher").rolling(window=rolling_window_length, closed="left", min_periods=25).sum().reset_index().sort_values(by='level_1').drop(columns=['pitcher', 'level_1']).reset_index(drop=True)
+                rolling_pitcher_df = pitcher_df[cols + ['pitcher']].groupby(by="pitcher").rolling(window=rolling_window_length, closed="left", min_periods=min(25, rolling_window_length)).sum().reset_index().sort_values(by='level_1').drop(columns=['pitcher', 'level_1']).reset_index(drop=True)
                 pitcher_df.loc[:, cols] = rolling_pitcher_df.values
 
         ######################### REPERCENTAGE NEUTRALIZED STATS (TO SUM % TO 1.0) #########################
@@ -983,67 +980,6 @@ class DatasetBuilder():
             columns=["game_date"], inplace=True)
         return stitched_dataset['batting_stats']
 
-    def ml_pipe(self, model=None):
-        """
-        Prepares the given dataset for machine learning by performing the following transformations:
-        1. Defines the target variables (y_play and y_onbase) and drops them from the dataset.
-        2. Scales numeric features and encodes categorical features (using one-hot encoding).
-        3. Returns the preprocessed dataset along with the target variables.
-
-        Args:
-            final_dataset (pd.DataFrame): The dataset to be prepared for machine learning, which should
-                                        include columns such as 'on_3b', 'on_2b', 'on_1b', 'inning_topbot',
-                                        'game_date', 'play_type', and 'is_on_base'.
-
-        Returns:
-            dict: A dictionary containing:
-                - "X" (np.ndarray): The preprocessed features (numeric and encoded categorical features).
-                - "y_play" (pd.Series): The target variable for the type of play ('play_type').
-                - "y_onbase" (pd.Series): The target variable indicating if the player is on base ('is_on_base').
-
-        Example:
-            prepared_data = make_dataset_machine_trainable(dataset)
-            X = prepared_data["X"]
-            y_play = prepared_data["y_play"]
-            y_onbase = prepared_data["y_onbase"]
-        """
-
-        # Create a pipeline for scaling, encoding, and PCA
-
-        numeric_transformer = Pipeline(
-            steps=[("scaler", StandardScaler()),
-                   ('dimensionality_reduction', PCA(n_components=.95))]
-        )
-
-        categorical_features = ["ballpark", "pitbat"]
-        categorical_transformer = Pipeline(
-            steps=[
-                ("encoder", OneHotEncoder(handle_unknown="ignore")),
-            ]
-        )
-
-        # Create a column transformer
-        preprocessor = ColumnTransformer(
-            transformers=[
-                ("num", numeric_transformer,
-                 make_column_selector(dtype_include="number")),
-                ("cat", categorical_transformer,
-                 make_column_selector(dtype_include="object")),
-            ]
-        )
-
-        pipe = Pipeline(
-            steps=[("preprocessor", preprocessor)]
-        )
-
-        if model != None:
-
-            pipe = Pipeline([
-                ("preprocessor", preprocessor),
-                ("model", model)
-            ])
-
-        return pipe
 
     # The input here is the output of the neutralize_stats function
     def calculate_league_averages(self, neutralized_unrolled_data):
@@ -1137,14 +1073,14 @@ class DatasetBuilder():
                 with open(f"data/processed_data/neutralization_coefficients_dict_{suffix}", 'wb') as f:
                     pkl.dump(coef_dicts, f)
 
-        # Build the final dataset, and machine readable training set
+        # Build the final dataset
         final_dataset = self._make_final_dataset(cleaned_data, coef_dicts)
         if save_dataset:
             if online_save:
                 cf.CloudHelper(obj=final_dataset).upload_to_cloud(
                     'simulation_training_data', f"Final Datasets/final_dataset_{suffix}")
             if local_save:
-                with open(f"data/processed_data/final_dataset_nonML_{suffix}", 'wb') as f:
+                with open(f"../../../../MLB-Data/daily_stats_df_updated_{suffix}.pkl", 'wb') as f:
                     pkl.dump(final_dataset, f)
 
         return final_dataset

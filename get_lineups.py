@@ -17,47 +17,52 @@ def mlb_scrape(date):
 
     i = 0
     for game in all_games:
-        lineups[i] = {}
+        try:
+            lineups[i] = {}
 
-        location = game.find_all('div', {'class':'starting-lineups__game-location'})[0].text.strip()
+            location = game.find_all('div', {'class':'starting-lineups__game-location'})[0].text.strip()
 
-        home_team = game.find_all('span', {'class': 'starting-lineups__team-name starting-lineups__team-name--home'})[0].text.split()[0]
-        home_team = home_team if home_team not in ["Red", "White"] else home_team + " Sox"
-        home_team = home_team if home_team != 'Blue' else home_team + " Jays"
-        lineups[i]['home_team'] = home_team
+            home_team = game.find_all('span', {'class': 'starting-lineups__team-name starting-lineups__team-name--home'})[0].text.split()[0]
+            home_team = home_team if home_team not in ["Red", "White"] else home_team + " Sox"
+            home_team = home_team if home_team != 'Blue' else home_team + " Jays"
+            lineups[i]['home_team'] = home_team
 
-        away_team = game.find_all('span', {'class': 'starting-lineups__team-name starting-lineups__team-name--away'})[0].text.split()[0]
-        away_team = away_team if away_team not in ["Red", "White"] else away_team + " Sox"
-        away_team = away_team if away_team != 'Blue' else away_team + " Jays"
-        lineups[i]['away_team'] = away_team
+            away_team = game.find_all('span', {'class': 'starting-lineups__team-name starting-lineups__team-name--away'})[0].text.split()[0]
+            away_team = away_team if away_team not in ["Red", "White"] else away_team + " Sox"
+            away_team = away_team if away_team != 'Blue' else away_team + " Jays"
+            lineups[i]['away_team'] = away_team
 
-        home_lineup = game.find_all('ol', {'class':'starting-lineups__team starting-lineups__team--home'})[0]
-        away_lineup = game.find_all('ol', {'class':'starting-lineups__team starting-lineups__team--away'})[0]
+            home_lineup = game.find_all('ol', {'class':'starting-lineups__team starting-lineups__team--home'})[0]
+            away_lineup = game.find_all('ol', {'class':'starting-lineups__team starting-lineups__team--away'})[0]
 
-        home_pitcher = game.find_all('a', {'class':'starting-lineups__pitcher--link'})[3].text
-        home_pitcher_id = game.find_all('a', {'class':'starting-lineups__pitcher--link'})[3]['href'].split('-')[-1]
-        away_pitcher = game.find_all('a', {'class':'starting-lineups__pitcher--link'})[1].text
-        away_pitcher_id = game.find_all('a', {'class':'starting-lineups__pitcher--link'})[1]['href'].split('-')[-1]
+            home_pitcher = game.find_all('a', {'class':'starting-lineups__pitcher--link'})[3].text
+            home_pitcher_id = game.find_all('a', {'class':'starting-lineups__pitcher--link'})[3]['href'].split('-')[-1]
+            away_pitcher = game.find_all('a', {'class':'starting-lineups__pitcher--link'})[1].text
+            away_pitcher_id = game.find_all('a', {'class':'starting-lineups__pitcher--link'})[1]['href'].split('-')[-1]
 
-        home_players = home_lineup.find_all('li', {'class':'starting-lineups__player'})
-        home_player_names = [player.a.text for player in home_players]
-        home_player_positions = [player.span.text.split(") ")[-1].strip() for player in home_players]
-        home_player_ids = [player.a['href'].split("-")[-1] for player in home_players]
+            home_players = home_lineup.find_all('li', {'class':'starting-lineups__player'})
+            home_player_names = [player.a.text for player in home_players]
+            home_player_positions = [player.span.text.split(") ")[-1].strip() for player in home_players]
+            home_player_ids = [player.a['href'].split("-")[-1] for player in home_players]
 
-        away_players = away_lineup.find_all('li', {'class':'starting-lineups__player'})
-        away_player_names = [player.a.text for player in away_players]
-        away_player_positions = [player.span.text.split(") ")[-1].strip() for player in away_players]
-        away_player_ids = [player.a['href'].split("-")[-1] for player in away_players]
+            away_players = away_lineup.find_all('li', {'class':'starting-lineups__player'})
+            away_player_names = [player.a.text for player in away_players]
+            away_player_positions = [player.span.text.split(") ")[-1].strip() for player in away_players]
+            away_player_ids = [player.a['href'].split("-")[-1] for player in away_players]
 
-        # Insert into Dictionary and List
-        lineups[i]['home_pitcher'] = {'name':home_pitcher, 'id':home_pitcher_id}
-        lineups[i]['away_pitcher'] = {'name':away_pitcher, 'id':away_pitcher_id}
-        lineups[i]['stadium'] = location
+            # Insert into Dictionary and List
+            lineups[i]['home_pitcher'] = {'name':home_pitcher, 'id':home_pitcher_id}
+            lineups[i]['away_pitcher'] = {'name':away_pitcher, 'id':away_pitcher_id}
+            lineups[i]['stadium'] = location
 
-        lineups[i]['home_lineup'] = {n+1:{'position':home_player_positions[n], 'player':home_player_names[n], 'id':home_player_ids[n]} for n in range(len(home_player_positions))}
-        lineups[i]['away_lineup'] = {n+1:{'position':away_player_positions[n], 'player':away_player_names[n], 'id':away_player_ids[n]} for n in range(len(away_player_positions))}
+            lineups[i]['home_lineup'] = {n+1:{'position':home_player_positions[n], 'player':home_player_names[n], 'id':home_player_ids[n]} for n in range(len(home_player_positions))}
+            lineups[i]['away_lineup'] = {n+1:{'position':away_player_positions[n], 'player':away_player_names[n], 'id':away_player_ids[n]} for n in range(len(away_player_positions))}
 
-        days_games.append((home_team, away_team))
+            days_games.append((home_team, away_team))
+
+        except IndexError: # The lineup is not set yet
+            continue
+
         i += 1
 
     return {'games':days_games, 'lineups':lineups}
