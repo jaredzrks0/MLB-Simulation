@@ -372,6 +372,12 @@ class GameSimulation():
             self._update_boxscore(self.batter_box_score, self.current_batter_id, ['PAs', 'ABs', 'triples'])
             self._update_boxscore(self.pitcher_box_score, self.current_pitcher_id, ['triples_allowed'])
             self.handle_base_hit(3)  # Handle triple (advance to 3rd base)
+            
+
+
+
+
+        
 
     def handle_base_hit(self, bases):
         # Handle moving runners based on the type of base hit (single, double, triple)
