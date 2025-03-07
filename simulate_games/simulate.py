@@ -372,12 +372,27 @@ class GameSimulation():
             self._update_boxscore(self.batter_box_score, self.current_batter_id, ['PAs', 'ABs', 'triples'])
             self._update_boxscore(self.pitcher_box_score, self.current_pitcher_id, ['triples_allowed'])
             self.handle_base_hit(3)  # Handle triple (advance to 3rd base)
-            
+        elif outcome == 'fielders_choice':
+            self._update_boxscore(self.batter_box_score, self.current_batter_id, ['PAs', 'ABs'])
+            self._update_boxscore(self.pitcher_box_score, self.current_pitcher_id, ['outs'], value=1)
+            self.outs_when_up += 1  # One out recorded
 
-
-
-
-        
+            # Lead runner is out, other runners advance
+            if self.on_3b:  # Lead runner on 3rd is out
+                self.on_3b = 0
+                if self.on_2b: # if runner on 2, he advances
+                    self.on_2b = 0
+                    self.on_3b = 1
+                if self.on_1b: # if runner on 1, he advances
+                    self.on_1b = 0
+                    self.on_2b = 1
+            elif self.on_2b:  # Lead runner on 2nd is out
+                self.on_2b = 0
+                self.on_3b = 1  # Runner from 1B advances to 2B
+                if self.on_1b: # if runner on 1, he advances
+                    self.on_1b = 0
+                    self.on_2b = 1
+            self.on_1b = 1 #Batter takes 1B
 
     def handle_base_hit(self, bases):
         # Handle moving runners based on the type of base hit (single, double, triple)

@@ -1,6 +1,4 @@
 .DS_Store
 .gitattributes
 .ipynb_checkpoints
-build_datasets/data
-simulate_games/data
-data
+
