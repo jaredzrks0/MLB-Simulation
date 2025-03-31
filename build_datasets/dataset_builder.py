@@ -1080,7 +1080,7 @@ class DatasetBuilder():
                 cf.CloudHelper(obj=final_dataset).upload_to_cloud(
                     'simulation_training_data', f"Final Datasets/final_dataset_{suffix}")
             if local_save:
-                with open(f"../../../../MLB-Data/daily_stats_df_updated_{suffix}.pkl", 'wb') as f:
+                with open(f"../../../../MLB-Data/daily_stats_dfs/daily_stats_df_updated_{suffix}.pkl", 'wb') as f:
                     pkl.dump(final_dataset, f)
 
         return final_dataset
