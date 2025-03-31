@@ -72,10 +72,6 @@ if __name__ == "__main__":
     # Build the daily stats dataframe for PA predicitons
     daily_stats_df = build_nightly_stats(year, month, day)
 
-    # Save the daily stats dataframe to machine
-    with open(f'../../../../MLB-Data/daily_stats_dfs/daily_stats_df_updated_{str(year).zfill(2)}-{str(month).zfill(2)}-{str(day).zfill(2)}.pkl', 'wb') as fpath:
-        pkl.dump(daily_stats_df, fpath)
-
     ############### LINEUPS COLLECTION ###############
     today = dt.today().strftime('%Y-%m-%d')
     lineups = mlb_scrape(date=today)
