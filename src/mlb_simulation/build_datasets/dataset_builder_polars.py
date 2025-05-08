@@ -3,9 +3,11 @@ import pandas as pd
 import polars as pl
 import numpy as np
 import pickle as pkl
+import os
 import sys
 import json
 import re
+
  
 from scipy import stats
 from collections import defaultdict
@@ -125,6 +127,10 @@ class DatasetBuilder():
         if self.verbose:
             print("Cleaning Data")
 
+        # Grab necesssary information from the df for later use that would
+        # later require calling collect early
+        self.unique_years = raw_pitches_df.game_date.dt.year.unique().tolist()
+
         # Convert the raw_pitches file to a LazyFrame
         raw_pitches_df = pl.from_pandas(raw_pitches_df).lazy()
 
@@ -138,7 +144,7 @@ class DatasetBuilder():
         raw_pitches_df = raw_pitches_df.with_columns(
             pl.col('game_date').str.split(" ").arr.get(0)
         ).sort(by=["game_date", "inning", "inning_topbot", "at_bat_number"],
-               reverse=[False, False, False, False, False])
+               descending=[False, False, False, False])
 
         # Filter all pitches to only those with an event\
         raw_plays = raw_pitches_df.drop_nulls(subset=['events'])
@@ -163,33 +169,43 @@ class DatasetBuilder():
         
 
         ############ ATTATCH WEATHER INFORMATION TO EACH PITCH ############
-
-        # Build a combined weather dataframe by concatanating all yearly weather dataframes belonging to all the years in the final_plays dataframe
-        years = list(final_plays.game_date.apply(
-            lambda x: x.split("-")[0]).unique())
-
+        
         weather_dictionary_holder = {}
 
-        for year in years:
-            # Download the proreference weather datafrom the cloud and insert to our dict
-            yearly_weather_df = cf.CloudHelper().download_from_cloud("proreference_weather_data/weather_data_{}".format(year)
-                                                                     )  # if this fails we might not have that years weather in cloud storage
-            weather_dictionary_holder[year] = yearly_weather_df
+        for year in self.unique_years:
+            # Pull in the proreference weather data 
+            yearly_weather_df = pd.DataFrame()
+            base_path = self.local_save_dir_path
+            filename = f'/proreference_weather_data/weather_data_{year}.pkl'
+            weather_filepath = base_path + filename
+            
+            if os.path.exists(weather_filepath):
+                with open(weather_filepath, 'rb') as fpath:
+                    yearly_weather_df = pl.read_csv(weather_filepath)
+            
+            # If not locally, download from the cloud
+            if len(yearly_weather_df) == 0:
+                yearly_weather_df = cf.CloudHelper().download_from_cloud("proreference_weather_data/weather_data_{}".format(year))
+                yearly_weather_df = pl.from_pandas(yearly_weather_df)  
+
+            if len(yearly_weather_df) == 0:
+                raise Exception(f'No Prorefence weather data was found for {year}. Ensure that the data exists and paths are correct!')
+            
+            # Insert each years data into storage as a LazyFrame
+            weather_dictionary_holder[year] = yearly_weather_df.lazy()
         
         # Concat all the yearly weather dataframes into one larger one
-        total_weather_df = pd.concat(
-            [df for df in weather_dictionary_holder.values()])
+        total_weather_df = pl.concat([df for df in weather_dictionary_holder.values()], how='vertical')
 
         # Create a new column with the converted home team names in total_weather_df
-        total_weather_df['converted_home_team'] = total_weather_df['home_team'].map(
-            {v: k for k, v in constants.WEATHER_NAME_CONVERSIONS.items()})
-        # Similarly, create a new column for the away team if necessary
-        total_weather_df['converted_away_team'] = total_weather_df['away_team'].map(
-            {v: k for k, v in constants.WEATHER_NAME_CONVERSIONS.items()})
+        team_name_map = {v: k for k, v in constants.WEATHER_NAME_CONVERSIONS.items()}
+        total_weather_df = total_weather_df.with_columns([
+            pl.col('home_team').replace(team_name_map).alias('converted_home_team'),
+            pl.col('away_team').replace(team_name_map).alias('converted_away_team')
+        ])
 
         # Drop the old columns
-        total_weather_df = total_weather_df.drop(
-            columns=['home_team', 'away_team'])
+        total_weather_df = total_weather_df.drop(['home_team', 'away_team'])
 
         # Attatch the raw weather string to the the play by matching the date and home team -- we've also added the away team clause to not throw errors on the limited number of g ames coded wrong where in pitches data the teams didn't play eachother and were both on the road
         final_plays["full_weather"] = final_plays.apply(lambda x: _pull_full_weather(

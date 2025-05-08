@@ -5,6 +5,9 @@ description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
+    "aiosmtplib>=4.0.1",
+    "google-cloud>=0.34.0",
+    "google-cloud-storage>=3.1.0",
     "ipykernel>=6.29.5",
     "ipython>=9.2.0",
     "multimodal-communication",
