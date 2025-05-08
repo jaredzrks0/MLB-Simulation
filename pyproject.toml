@@ -4,4 +4,34 @@ version = "0.1.0"
 description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.12"
-dependencies = []
+dependencies = [
+    "ipykernel>=6.29.5",
+    "ipython>=9.2.0",
+    "multimodal-communication",
+    "numpy>=2.2.5",
+    "pandas>=2.2.3",
+    "polars>=1.29.0",
+    "pyarrow>=20.0.0",
+    "scikit-learn>=1.6.1",
+    "scipy>=1.15.2",
+]
+
+[tool.uv.sources]
+multimodal-communication = { path = "../multimodal_communication", editable = true }
+mlb-simulation = { workspace = true }
+
+[dependency-groups]
+dev = [
+    "mlb-simulation",
+    "ruff>=0.11.8",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/mlb_simulation"]
+
+[project.scripts]
+mlb-data-collection = "mlb_simulation:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
