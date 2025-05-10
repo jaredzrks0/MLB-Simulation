@@ -255,7 +255,7 @@ class DatasetBuilder():
             (pl.col('wind_speed') * (pl.col('wind_direction').eq(pl.lit('left to right')))).alias('ltr')
         ).drop('wind_direction', 'wind_speed')
 
-        
+
         ############ ATTATCH BALLPARK INFO TO EACH PITCH ############
 
         # Import file to help connect team and year with a specific ballpark
@@ -266,7 +266,7 @@ class DatasetBuilder():
         final_plays = final_plays.join(ballpark_info, on='home_team', how='left')
         final_plays = final_plays.filter(
             pl.col('game_date').str.split('-').list.get(0).cast(pl.Int64) < pl.col('End Date').cast(pl.Int64)
-        )
+        ).drop('Start Date', 'End Date', 'Full Name')
 
         ############ Divide pitches by pitbat combos in 4 dataframes ############
         all_plays_by_pitbat_combo = {}

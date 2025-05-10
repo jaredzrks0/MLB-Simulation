@@ -124,29 +124,29 @@
     #     final_plays["wind_direction"] = final_plays.wind_direction.apply(
     #         lambda x: x.split(", ")[0] if x != None else x)
 
-    #     # Convert the wind direction text column into a one-hot encoded set of columns multiplied by the wind speed (yields individual columns representing total wind speed)
+    #     # Convert the wind diremction text column into a one-hot encoded set of columns multiplied by the wind speed (yields individual columns representing total wind speed)
     #     final_plays = _convert_wind_direction(
     #         final_plays, final_plays.wind_direction)
 
-        ############ ATTATCH BALLPARK INFO TO EACH PITCH ############
+        # ############ ATTATCH BALLPARK INFO TO EACH PITCH ############
 
-        # Import file to help connect team and year with a specific ballpark
-        try:
-            ballpark_info = pd.read_excel("../build_datasets/data/non_mlb_data/Ballpark Info.xlsx", header=2)[
-                ["Stadium", "Team", "Start Date", "End Date"]]
-        except:
-            ballpark_info = pd.read_excel("data/non_mlb_data/Ballpark Info.xlsx", header=2)[
-                ["Stadium", "Team", "Start Date", "End Date"]]
+        # # Import file to help connect team and year with a specific ballpark
+        # try:
+        #     ballpark_info = pd.read_excel("../build_datasets/data/non_mlb_data/Ballpark Info.xlsx", header=2)[
+        #         ["Stadium", "Team", "Start Date", "End Date"]]
+        # except:
+        #     ballpark_info = pd.read_excel("data/non_mlb_data/Ballpark Info.xlsx", header=2)[
+        #         ["Stadium", "Team", "Start Date", "End Date"]]
 
-        # Create a column for the ballpark based on the date and home_team of each pitch
-        final_plays["ballpark"] = final_plays.apply(lambda x: ballpark_info[(ballpark_info.Team.values == x.home_team) & (
-            ballpark_info["End Date"].values > int(x.game_date.split("-")[0]))].Stadium.iloc[0], axis=1)
+        # # Create a column for the ballpark based on the date and home_team of each pitch
+        # final_plays["ballpark"] = final_plays.apply(lambda x: ballpark_info[(ballpark_info.Team.values == x.home_team) & (
+        #     ballpark_info["End Date"].values > int(x.game_date.split("-")[0]))].Stadium.iloc[0], axis=1)
 
-        ############ Divide pitches by pitbat combos in 4 dataframes ############
-        all_plays_by_pitbat_combo = _segregate_plays_by_pitbat_combo(
-            final_plays)
+        # ############ Divide pitches by pitbat combos in 4 dataframes ############
+        # all_plays_by_pitbat_combo = _segregate_plays_by_pitbat_combo(
+        #     final_plays)
 
-        return all_plays_by_pitbat_combo
+        # return all_plays_by_pitbat_combo
 
     #######################################################################################################################
     # Build weather coefficients and ballpark coeficients dictionaries, which will be used in neutralization
