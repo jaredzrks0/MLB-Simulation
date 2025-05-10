@@ -26,7 +26,6 @@ from mlb_simulation.build_datasets import constants
 from mlb_simulation.build_datasets.utils_polars import (_correct_home_away_swap,
                    _get_wind_direction,
                    _convert_wind_direction,
-                   _pull_full_weather,
                    _segregate_plays_by_pitbat_combo
 )
 
@@ -142,7 +141,7 @@ class DatasetBuilder():
 
         # Convert the datetime game_date to a string formatted as YYYY-MM-DD, and sort the df on the column to make sure everything is in order
         raw_pitches_df = raw_pitches_df.with_columns(
-            pl.col('game_date').str.split(" ").arr.get(0)
+            pl.col("game_date").dt.strftime("%Y-%m-%d").alias("game_date")
         ).sort(by=["game_date", "inning", "inning_topbot", "at_bat_number"],
                descending=[False, False, False, False])
 
@@ -152,7 +151,7 @@ class DatasetBuilder():
         # Filter all pitches with an event to only those types we care about
         # As well as only the columns we care about
         final_plays = raw_plays.filter(
-            pl.col('events').is_in([constants.RELEVANT_PLAY_TYPES])
+            pl.col('events').is_in(constants.RELEVANT_PLAY_TYPES)
         ).select(
             constants.RELEVANT_BATTING_COLUMNS
         )
@@ -178,10 +177,9 @@ class DatasetBuilder():
             base_path = self.local_save_dir_path
             filename = f'/proreference_weather_data/weather_data_{year}.pkl'
             weather_filepath = base_path + filename
-            
             if os.path.exists(weather_filepath):
                 with open(weather_filepath, 'rb') as fpath:
-                    yearly_weather_df = pl.read_csv(weather_filepath)
+                    yearly_weather_df = pl.read_csv(fpath)
             
             # If not locally, download from the cloud
             if len(yearly_weather_df) == 0:
@@ -207,20 +205,55 @@ class DatasetBuilder():
         # Drop the old columns
         total_weather_df = total_weather_df.drop(['home_team', 'away_team'])
 
-        # Attatch the raw weather string to the the play by matching the date and home team -- we've also added the away team clause to not throw errors on the limited number of g ames coded wrong where in pitches data the teams didn't play eachother and were both on the road
-        final_plays["full_weather"] = final_plays.apply(lambda x: _pull_full_weather(
-            x.game_date, x.home_team, x.away_team, total_weather_df), axis=1)
-
+        # Attatch the full str description of the weather, found by joining the pitches df and the weather df
+        # Note that this will add atrifically add some rows due to double headers, that will join with both
+        # Descriptions, but this can be thought of an 'average' of the two
+        total_weather_df = total_weather_df.rename({'date':'game_date', 'converted_home_team':'home_team'})
+        final_plays = final_plays.join(total_weather_df, on=['game_date', 'home_team']).drop(
+            ['converted_away_team', 'url']
+        )
+        
         # Break up the full weather info into temp, wind speed, and wind direction seperately
-        final_plays["temprature"] = final_plays.full_weather.apply(
-            lambda x: int(x.split(": ")[1].split("°")[0]))
-        final_plays["wind_speed"] = final_plays.full_weather.apply(
-            lambda x: int(x.split("Wind ")[1].split("mph")[0]) if "Wind" in x else 0)
-        final_plays["wind_direction"] = final_plays.full_weather.apply(
-            _get_wind_direction)
-        final_plays["wind_direction"] = final_plays.wind_direction.apply(
-            lambda x: x.split(", ")[0] if x != None else x)
+        final_plays = final_plays.with_columns(
+            pl.col('weather').str.split(': ').list.get(1).str.split("°").list.get(0).cast(pl.Int64).alias('temperature'),
+            
+            # Wind direction
+            pl.when(pl.col("weather").is_not_null())
+            .then(
+                pl.when(pl.col("weather").str.replace("Wind", "").str.contains("(?i)in"))
+                    .then(pl.lit("in"))
+                .when(pl.col("weather").str.replace("Wind", "").str.contains("(?i)out"))
+                    .then(pl.lit("out"))
+                .when(pl.col("weather").str.contains("Left|Right"))
+                    .then(pl.col("weather").str.extract(r"from ([^,.]+)", 1).str.to_lowercase())
+                .otherwise(None)
+            )
+            .otherwise(None)
+            .alias("wind_direction"),
 
-        # Convert the wind direction text column into a one-hot encoded set of columns multiplied by the wind speed (yields individual columns representing total wind speed)
-        final_plays = _convert_wind_direction(
-            final_plays, final_plays.wind_direction)
+            # Wind Speed
+            pl.when(pl.col('weather').str.contains("Wind"))
+            .then(
+                pl.col('weather').str.split('Wind ').list.get(1).str.split('mph').list.get(0).cast(pl.Int64) 
+            )
+            .otherwise(pl.lit(0))
+            .alias('wind_speed')
+        )
+
+        # Convert the wind direction for 0 wind results from 'in' to 'zero'
+        final_plays = final_plays.with_columns(
+            pl.when(pl.col('wind_speed') == 0)
+                .then(pl.lit('zero'))
+                .otherwise(pl.col('wind_direction'))
+                .alias('wind_direction')
+        )
+
+        # Create columns for each of the wind directions, with the value of the wind speed in that direction
+        final_plays = final_plays.with_columns(
+            (pl.col('wind_speed') * (pl.col('wind_direction').eq(pl.lit('in')))).alias('in'),
+            (pl.col('wind_speed') * (pl.col('wind_direction').eq(pl.lit('out')))).alias('out'),
+            (pl.col('wind_speed') * (pl.col('wind_direction').eq(pl.lit('right to left')))).alias('rtl'),
+            (pl.col('wind_speed') * (pl.col('wind_direction').eq(pl.lit('left to right')))).alias('ltr')
+        ).drop('wind_direction', 'wind_speed')
+
+        

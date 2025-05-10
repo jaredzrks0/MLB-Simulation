@@ -30,46 +30,62 @@ def _get_wind_direction(full_weather: str) -> str:
 
     return weather
 
-def _convert_wind_direction(all_plays_by_pitbat_combo, wind_column="wind_direction"):
-    """
-    Converts categorical wind direction and numeric wind speed in a DataFrame into 
-    one-hot encoded (OHE) columns representing wind speed in each direction.
+# def _convert_wind_direction(all_plays_by_pitbat_combo, wind_column="wind_direction"):
+#     """
+#     Converts categorical wind direction and numeric wind speed in a DataFrame into 
+#     one-hot encoded (OHE) columns representing wind speed in each direction.
 
-    Parameters:
-        all_plays_by_pitbat_combo (DataFrame): A cleaned DataFrame of pitches, including columns 
-            for wind direction and wind speed of each play.
-        wind_column (str): The column name containing wind direction data. Defaults to "wind_direction".
+#     Parameters:
+#         all_plays_by_pitbat_combo (DataFrame): A cleaned DataFrame of pitches, including columns 
+#             for wind direction and wind speed of each play.
+#         wind_column (str): The column name containing wind direction data. Defaults to "wind_direction".
 
-    Returns:
-        DataFrame: The input DataFrame with added OHE columns for wind direction, where each column 
-        represents a wind direction and contains the wind speed in that direction.
-    """
+#     Returns:
+#         DataFrame: The input DataFrame with added OHE columns for wind direction, where each column 
+#         represents a wind direction and contains the wind speed in that direction.
+#     """
 
-    # When wind speed is 0, the direction is automatically listed as "in" --> convert it to "zero" to differentiate
-    ind = all_plays_by_pitbat_combo[all_plays_by_pitbat_combo.wind_speed.values == 0].index
-    all_plays_by_pitbat_combo.loc[ind, "wind_direction"] = "zero"
+    # # When wind speed is 0, the direction is automatically listed as "in" --> convert it to "zero" to differentiate
+    # ind = all_plays_by_pitbat_combo[all_plays_by_pitbat_combo.wind_speed.values == 0].index
+    # all_plays_by_pitbat_combo.loc[ind, "wind_direction"] = "zero"
 
     # Use pd.get_dummies to One Hot Encode the wind direction as binary columns
-    wind_columns = pd.get_dummies(
-        wind_column, columns=['categorical_column', ])
-    wind_columns = pd.concat(
-        [all_plays_by_pitbat_combo, wind_columns], axis=1)
+    # wind_columns = pd.get_dummies(wind_column, columns=['categorical_column', ])
+    # wind_columns = pd.concat([all_plays_by_pitbat_combo, wind_columns], axis=1)
 
-    # Finally multiply the binary wind direction columns by the wind speed to get the final wind speed in the correct direction
-    for column in wind_columns.columns[-5:]:
-        wind_columns[column] = wind_columns[column] * \
-            wind_columns["wind_speed"]
+    # # Finally multiply the binary wind direction columns by the wind speed to get the final wind speed in the correct direction
+    # for column in wind_columns.columns[-5:]:
+    #     wind_columns[column] = wind_columns[column] * \
+    #         wind_columns["wind_speed"]
 
-    return wind_columns
+    # return wind_columns
 
-def _pull_full_weather(game_date, home_team, away_team, total_weather_df):
-    try:
-        # value = total_weather_df[(total_weather_df.date.values == game_date) & ((total_weather_df.home_team.values == constants.WEATHER_NAME_CONVERSIONS[home_team])|(total_weather_df.home_team.values == constants.WEATHER_NAME_CONVERSIONS[away_team]))].weather.iloc[0]
-        value = total_weather_df[(total_weather_df.date.values == game_date) & ((total_weather_df.converted_home_team.values == home_team) | (
-            total_weather_df.converted_home_team.values == away_team))].weather.iloc[0]
-        return value
-    except:
-        return 'Start Time Weather: 72° F, Wind 0mph, In Dome.'
+# def _pull_full_weather(game_date, home_team, away_team, total_weather_df):
+#     try:(
+#         value = total_weather_df.filter(
+#             (pl.col('date') == game_date) &
+#             (
+#                 (pl.col('converteded_home_team') == home_team) |
+#                 (pl.col('converted_home_team') == away_team)
+#             )
+#             .select(['weather']).arr.get(0)
+#         )
+#         )
+#         return value
+
+#     except:
+#         None
+
+    
+
+
+    # try:
+    #     # value = total_weather_df[(total_weather_df.date.values == game_date) & ((total_weather_df.home_team.values == constants.WEATHER_NAME_CONVERSIONS[home_team])|(total_weather_df.home_team.values == constants.WEATHER_NAME_CONVERSIONS[away_team]))].weather.iloc[0]
+    #     value = total_weather_df[(total_weather_df.date.values == game_date) & ((total_weather_df.converted_home_team.values == home_team) | (
+    #         total_weather_df.converted_home_team.values == away_team))].weather.iloc[0]
+    #     return value
+    # except:
+    #     return 'Start Time Weather: 72° F, Wind 0mph, In Dome.'
 
 def _segregate_plays_by_pitbat_combo(cleaned_plays: pd.DataFrame) -> pd.DataFrame:
     """
