@@ -148,128 +148,126 @@
 
         # return all_plays_by_pitbat_combo
 
-    #######################################################################################################################
-    # Build weather coefficients and ballpark coeficients dictionaries, which will be used in neutralization
-    #######################################################################################################################
+    # #######################################################################################################################
+    # # Build weather coefficients and ballpark coeficients dictionaries, which will be used in neutralization
+    # #######################################################################################################################
 
-    def _insert_game_play_shares(self, all_plays_by_pitbat_combo: dict) -> dict:
-        """
-        Calculates the game play share (percentage of play type outcomes) for each game and inserts 
-        the share as a new column into the relevant DataFrames within the input dictionary.
+    # def _insert_game_play_shares(self, all_plays_by_pitbat_combo: dict) -> dict:
+    #     """
+    #     Calculates the game play share (percentage of play type outcomes) for each game and inserts 
+    #     the share as a new column into the relevant DataFrames within the input dictionary.
 
-        Parameters:
-            all_plays_by_pitbat_combo (dict): A dictionary of DataFrames, each containing pitches 
-                divided by batter-pitcher handedness combination, including columns for play type and game identifier.
+    #     Parameters:
+    #         all_plays_by_pitbat_combo (dict): A dictionary of DataFrames, each containing pitches 
+    #             divided by batter-pitcher handedness combination, including columns for play type and game identifier.
 
-        Returns:
-            dict: A dictionary with the same keys as the input, but each DataFrame now includes a 
-            new column `game_play_share`, representing the percentage of each play type in each game.
-        """
+    #     Returns:
+    #         dict: A dictionary with the same keys as the input, but each DataFrame now includes a 
+    #         new column `game_play_share`, representing the percentage of each play type in each game.
+    #     """
 
-        game_play_shares = {x: {} for x in constants.HAND_COMBOS}
-        n = 0
+    #     game_play_shares = {x: {} for x in constants.HAND_COMBOS}
+    #     n = 0
 
-        # Build a dictionary of all the game play shares for quicker insertion later
-        for pitbat_combo in constants.HAND_COMBOS:
-            full_df = all_plays_by_pitbat_combo[pitbat_combo].copy()
-            # For each game
-            for game in full_df.game_pk.unique():  # this might be able to become a groupby
-                clear_output(wait=True)
+    #     # Build a dictionary of all the game play shares for quicker insertion later
+    #     for pitbat_combo in constants.HAND_COMBOS:
+    #         full_df = all_plays_by_pitbat_combo[pitbat_combo].copy()
+    #         # For each game
+    #         for game in full_df.game_pk.unique():  # this might be able to become a groupby
+    #             clear_output(wait=True)
 
-                # Slice all pitches to just the individual game
-                game_df = full_df[full_df.game_pk.values == game].copy()
-                total_plays = len(game_df)
+    #             # Slice all pitches to just the individual game
+    #             game_df = full_df[full_df.game_pk.values == game].copy()
+    #             total_plays = len(game_df)
 
-                # Calculate the total number of the play in the specific game by rolling 'type counter' within each play type and finding the max
-                game_df["type_counter"] = game_df[["play_type", "game_pk", "type_counter"]].groupby(
-                    by="play_type").cumsum().type_counter
-                game_df = game_df[["play_type", "game_pk", "type_counter"]].groupby(
-                    by="play_type").max()
+    #             # Calculate the total number of the play in the specific game by rolling 'type counter' within each play type and finding the max
+    #             game_df["type_counter"] = game_df[["play_type", "game_pk", "type_counter"]].groupby(by="play_type").cumsum().type_counter
+    #             game_df = game_df[["play_type", "game_pk", "type_counter"]].groupby(by="play_type").max()
 
-                # Calculate the play share for each play type within the specific game by dividing the rolled counter by the total plays in the game
-                game_df["play_share"] = game_df.type_counter/total_plays
+    #             # Calculate the play share for each play type within the specific game by dividing the rolled counter by the total plays in the game
+    #             game_df["play_share"] = game_df.type_counter/total_plays
 
-                # Insert the game play shares for the specific game into a larger dictionary holder for later reference
-                game_play_shares[pitbat_combo][game] = game_df
+    #             # Insert the game play shares for the specific game into a larger dictionary holder for later reference
+    #             game_play_shares[pitbat_combo][game] = game_df
 
-                # Update the counter and reprint to inform user of the current position
-                if self.verbose:
-                    if n % 10000 == 0:
-                        print("Calculating The Play Share by Play Type for Each Game. There are {}K Instances Remaining".format(
-                            round((sum([len(all_plays_by_pitbat_combo[x].game_pk.unique()) for x in constants.HAND_COMBOS])-n)/1000), 6))
-                    n += 1
-                clear_output(wait=True)
+    #             # Update the counter and reprint to inform user of the current position
+    #             if self.verbose:
+    #                 if n % 10000 == 0:
+    #                     print("Calculating The Play Share by Play Type for Each Game. There are {}K Instances Remaining".format(
+    #                         round((sum([len(all_plays_by_pitbat_combo[x].game_pk.unique()) for x in constants.HAND_COMBOS])-n)/1000), 6))
+    #                 n += 1
+    #             clear_output(wait=True)
 
-        plays_by_pitbat_combo_with_play_shares = {}
-        # Add a column in the all plays dfs that is the game play share for the specific game and play type of each play
-        for pitbat_combo in constants.HAND_COMBOS:
-            if self.verbose:
-                print("Inserting Play Shares by Play Type from Each Game To the All Pitches Data Set. There are {} Pitbat Combos Remaining".format(
-                    len(constants.HAND_COMBOS) - constants.HAND_COMBOS.index(pitbat_combo)))
-                clear_output(wait=True)
+    #     plays_by_pitbat_combo_with_play_shares = {}
+    #     # Add a column in the all plays dfs that is the game play share for the specific game and play type of each play
+    #     for pitbat_combo in constants.HAND_COMBOS:
+    #         if self.verbose:
+    #             print("Inserting Play Shares by Play Type from Each Game To the All Pitches Data Set. There are {} Pitbat Combos Remaining".format(
+    #                 len(constants.HAND_COMBOS) - constants.HAND_COMBOS.index(pitbat_combo)))
+    #             clear_output(wait=True)
 
-            # The if statement in the apply below is used to catch the rare case (n=2 PA in 2018-2019) where the game_pk = <NA>. When this happens the play associated is in the game itself, but does not make it into the
-            # game_play_shares dict which throws and error when pulling the play type from the dictionary
-            game_play_df = all_plays_by_pitbat_combo[pitbat_combo].copy()
-            game_play_df["game_play_share"] = game_play_df.apply(
-                lambda x: game_play_shares[pitbat_combo][x.game_pk].loc[x.play_type].play_share if x.play_type in game_play_shares[pitbat_combo][x.game_pk].index else 0, axis=1)
+    #         # The if statement in the apply below is used to catch the rare case (n=2 PA in 2018-2019) where the game_pk = <NA>. When this happens the play associated is in the game itself, but does not make it into the
+    #         # game_play_shares dict which throws and error when pulling the play type from the dictionary
+    #         game_play_df = all_plays_by_pitbat_combo[pitbat_combo].copy()
+    #         game_play_df["game_play_share"] = game_play_df.apply(
+    #             lambda x: game_play_shares[pitbat_combo][x.game_pk].loc[x.play_type].play_share if x.play_type in game_play_shares[pitbat_combo][x.game_pk].index else 0, axis=1)
 
-            plays_by_pitbat_combo_with_play_shares[pitbat_combo] = game_play_df
+    #         plays_by_pitbat_combo_with_play_shares[pitbat_combo] = game_play_df
 
-        return plays_by_pitbat_combo_with_play_shares
+    #     return plays_by_pitbat_combo_with_play_shares
 
-    def _insert_missing_game_play_shares(self, weather_regression_data: dict, hand_combos: list = constants.HAND_COMBOS) -> dict:
-        """
-        Fills in missing play types for each game in the input dictionary by adding rows with a 
-        `game_play_share` of 0 for missing play types in each game.
+    # def _insert_missing_game_play_shares(self, weather_regression_data: dict, hand_combos: list = constants.HAND_COMBOS) -> dict:
+    #     """
+    #     Fills in missing play types for each game in the input dictionary by adding rows with a 
+    #     `game_play_share` of 0 for missing play types in each game.
 
-        Parameters:
-            weather_regression_data (dict): A dictionary of DataFrames, each containing plays divided by 
-                batter-pitcher handedness combo, including columns for play type, game identifier, and weather-related features.
-            hand_combos (list): A list of batter-pitcher handedness combinations to iterate over (default is `constants.HAND_COMBOS`).
+    #     Parameters:
+    #         weather_regression_data (dict): A dictionary of DataFrames, each containing plays divided by 
+    #             batter-pitcher handedness combo, including columns for play type, game identifier, and weather-related features.
+    #         hand_combos (list): A list of batter-pitcher handedness combinations to iterate over (default is `constants.HAND_COMBOS`).
 
-        Returns:
-            dict: The updated dictionary of DataFrames, now with missing play types filled in for each game 
-                with a `game_play_share` of 0.
-        """
+    #     Returns:
+    #         dict: The updated dictionary of DataFrames, now with missing play types filled in for each game 
+    #             with a `game_play_share` of 0.
+    #     """
 
-        # As the only plays in our data are types that happened in games, fill in all the missing play types for each game with a game_share of 0 for that play type
-        play_types = constants.PLAY_TYPES
-        n = 0
-        for pitbat_combo in constants.HAND_COMBOS:
-            for game in weather_regression_data[pitbat_combo].game_pk.unique():
-                n += 1
-                if self.verbose:
-                    if n % 10000 == 0:
-                        print("Filling in the values for the game_play_share variable for games without the play (0). There are {}K Instances Remaining".format(
-                            round((sum([len(weather_regression_data[x].game_pk.unique()) for x in constants.HAND_COMBOS])-n)/1000), 6))
-                    clear_output(wait=True)
+    #     # As the only plays in our data are types that happened in games, fill in all the missing play types for each game with a game_share of 0 for that play type
+    #     play_types = constants.PLAY_TYPES
+    #     n = 0
+    #     for pitbat_combo in constants.HAND_COMBOS:
+    #         for game in weather_regression_data[pitbat_combo].game_pk.unique():
+    #             n += 1
+    #             if self.verbose:
+    #                 if n % 10000 == 0:
+    #                     print("Filling in the values for the game_play_share variable for games without the play (0). There are {}K Instances Remaining".format(
+    #                         round((sum([len(weather_regression_data[x].game_pk.unique()) for x in constants.HAND_COMBOS])-n)/1000), 6))
+    #                 clear_output(wait=True)
 
-                # Slice all plays to a specific game
-                df = weather_regression_data[pitbat_combo][weather_regression_data[pitbat_combo].game_pk.values == game].copy(
-                )
-                # Check if there are any missing plays and if so, determine how many and which ones
-                if len(df) < len(play_types):
-                    missing_plays = [
-                        play for play in play_types if play not in df.play_type.values]
-                    num_missing_plays = len(missing_plays)
+    #             # Slice all plays to a specific game
+    #             df = weather_regression_data[pitbat_combo][weather_regression_data[pitbat_combo].game_pk.values == game].copy(
+    #             )
+    #             # Check if there are any missing plays and if so, determine how many and which ones
+    #             if len(df) < len(play_types):
+    #                 missing_plays = [
+    #                     play for play in play_types if play not in df.play_type.values]
+    #                 num_missing_plays = len(missing_plays)
 
-                    # Pull all the game info for easy reference while inserting
-                    game_info = df.iloc[0]
+    #                 # Pull all the game info for easy reference while inserting
+    #                 game_info = df.iloc[0]
 
-                    # Build and insert into all pitches a DataFrame of each missing play from each game with the basic game info for the weather regression, including a game play share of 0
-                    weather_regression_data[pitbat_combo] = pd.concat([weather_regression_data[pitbat_combo], pd.DataFrame({"game_pk": [game]*num_missing_plays,
-                                                                                                                            "game_date": [game_info.game_date]*num_missing_plays,
-                                                                                                                            "play_type": missing_plays,
-                                                                                                                            "temprature": [game_info.temprature]*num_missing_plays,
-                                                                                                                            "Right to Left": [game_info["Right to Left"]]*num_missing_plays,
-                                                                                                                            "Left to Right": [game_info["Left to Right"]]*num_missing_plays,
-                                                                                                                            "in": [game_info["in"]]*num_missing_plays,
-                                                                                                                            "out": [game_info["out"]]*num_missing_plays,
-                                                                                                                            "zero": [game_info["zero"]]*num_missing_plays,
-                                                                                                                            "game_play_share": [0]*num_missing_plays})])
+    #                 # Build and insert into all pitches a DataFrame of each missing play from each game with the basic game info for the weather regression, including a game play share of 0
+    #                 weather_regression_data[pitbat_combo] = pd.concat([weather_regression_data[pitbat_combo], pd.DataFrame({"game_pk": [game]*num_missing_plays,
+    #                                                                                                                         "game_date": [game_info.game_date]*num_missing_plays,
+    #                                                                                                                         "play_type": missing_plays,
+    #                                                                                                                         "temprature": [game_info.temprature]*num_missing_plays,
+    #                                                                                                                         "Right to Left": [game_info["Right to Left"]]*num_missing_plays,
+    #                                                                                                                         "Left to Right": [game_info["Left to Right"]]*num_missing_plays,
+    #                                                                                                                         "in": [game_info["in"]]*num_missing_plays,
+    #                                                                                                                         "out": [game_info["out"]]*num_missing_plays,
+    #                                                                                                                         "zero": [game_info["zero"]]*num_missing_plays,
+    #                                                                                                                         "game_play_share": [0]*num_missing_plays})])
 
-        return weather_regression_data
+    #     return weather_regression_data
 
     def _create_weather_regression_dataframes(self, all_plays_by_hand_combo):
         """

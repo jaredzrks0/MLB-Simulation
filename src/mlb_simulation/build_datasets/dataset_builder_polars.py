@@ -65,7 +65,7 @@ class DatasetBuilder():
         cleaned_data = self._clean_raw_pitches(raw_pitches)
 
         # Create a neutralization coefficients dictionary
-        coef_dicts = self.build_neutralization_coefficient_dictionaries(cleaned_data)
+        coef_dicts = self._build_neutralization_coefficient_dictionaries(cleaned_data)
 
         if save_coefficients:
             # Format the windows in a variable to help with the naming conventions while saving
@@ -105,7 +105,7 @@ class DatasetBuilder():
     ######################################################################################
     # Clean Pitch Data
     ######################################################################################
-    def clean_raw_pitches(self, raw_pitches_df: pd.DataFrame) -> pl.LazyFrame:
+    def _clean_raw_pitches(self, raw_pitches_df: pd.DataFrame) -> pl.LazyFrame:
         """
         Cleans a DataFrame of raw pitch data, filtering and transforming it into a usable format 
         for subsequent analyses, including attaching weather and ballpark information.
@@ -276,5 +276,78 @@ class DatasetBuilder():
                 (pl.col('p_throws').eq(pitbat_combo[1]))
             )
         
-
         return all_plays_by_pitbat_combo
+    
+    #######################################################################################################################
+    # Build weather coefficients and ballpark coeficients dictionaries, which will be used in neutralization
+    #######################################################################################################################
+
+    def _insert_game_play_shares(self, all_plays_by_pitbat_combo: dict) -> dict:
+        """
+        Calculates the game play share (percentage of play type outcomes) for each game and inserts 
+        the share as a new column into the relevant DataFrames within the input dictionary.
+
+        Parameters:
+            all_plays_by_pitbat_combo (dict): A dictionary of DataFrames, each containing pitches 
+                divided by batter-pitcher handedness combination, including columns for play type and game identifier.
+
+        Returns:
+            dict: A dictionary with the same keys as the input, but each DataFrame now includes a 
+            new column `game_play_share`, representing the percentage of each play type in each game.
+        """
+
+        weather_regression_dfs = {x: {} for x in constants.HAND_COMBOS}
+
+        for pitbat_combo in constants.HAND_COMBOS:
+            full_df = all_plays_by_pitbat_combo[pitbat_combo]
+
+            # Count the number of total plays per game of each type
+            plays_per_game_by_type = (
+                full_df
+                .group_by(['game_pk', 'play_type'])
+                .agg([
+                    pl.len().alias('play_count')
+                ])
+            )
+
+            # Count the total number of plays per game
+            total_plays_per_game = (
+                full_df
+                .group_by(['game_pk'])
+                .agg([
+                    pl.len().alias('total_game_plays')
+                ])
+            )
+
+            # Join the two tables
+            play_shares_by_game = (
+                plays_per_game_by_type
+                .join(total_plays_per_game, on='game_pk', how='left')
+                .with_columns(
+                    (pl.col('play_count') / pl.col('total_game_plays')).alias('game_play_share')
+                )
+                .cache() # Cache the result for use in building out the weather regression df
+            )
+
+            unique_plays = play_shares_by_game.select('play_type').unique()
+            unique_games = play_shares_by_game.select('game_pk').unique()
+
+            weather_regression_df = (
+                unique_games
+                .join(unique_plays, how='cross') # Compute all game/play type combos
+                .join(play_shares_by_game, how='left', on=['game_pk', 'play_type']) # Join each combo with the play share
+                .fill_null(0.0)
+                .drop(['play_count', 'total_game_plays'])
+                .join( # Join back with the main pitches df
+                    full_df.group_by('game_pk').first(),
+                    on='game_pk',
+                    how='left'
+                )
+                .select(['game_pk', 'play_type', 'temperature', 'in', 'out', 'rtl', 'ltr', 'game_play_share']) # Pluck only the weather columns
+                .with_columns((pl.col('temperature') ** 2).alias('temprature_sq')) # And square temprature for feature engineering purposes
+                .drop('temperature')
+            )
+
+            weather_regression_dfs[pitbat_combo] = weather_regression_df
+
+        return weather_regression_dfs
