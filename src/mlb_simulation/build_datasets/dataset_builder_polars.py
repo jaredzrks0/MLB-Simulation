@@ -25,7 +25,6 @@ from multimodal_communication import cloud_functions as cf
 from mlb_simulation.build_datasets import constants
 from mlb_simulation.build_datasets.utils_polars import (_correct_home_away_swap,
                    _get_wind_direction,
-                   _convert_wind_direction,
                    _segregate_plays_by_pitbat_combo
 )
 
@@ -257,3 +256,25 @@ class DatasetBuilder():
         ).drop('wind_direction', 'wind_speed')
 
         
+        ############ ATTATCH BALLPARK INFO TO EACH PITCH ############
+
+        # Import file to help connect team and year with a specific ballpark
+        ballpark_pandas = pd.read_excel('data/Ballpark Info.xlsx')
+        ballpark_info = pl.from_pandas(ballpark_pandas).lazy()
+
+        # Join the pitches to the ballparks
+        final_plays = final_plays.join(ballpark_info, on='home_team', how='left')
+        final_plays = final_plays.filter(
+            pl.col('game_date').str.split('-').list.get(0).cast(pl.Int64) < pl.col('End Date').cast(pl.Int64)
+        )
+
+        ############ Divide pitches by pitbat combos in 4 dataframes ############
+        all_plays_by_pitbat_combo = {}
+        for pitbat_combo in ['RR', 'RL', 'LR', 'LL']:
+            all_plays_by_pitbat_combo[pitbat_combo] = final_plays.filter(
+                (pl.col('stand').eq(pitbat_combo[0])) &
+                (pl.col('p_throws').eq(pitbat_combo[1]))
+            )
+        
+
+        return all_plays_by_pitbat_combo
