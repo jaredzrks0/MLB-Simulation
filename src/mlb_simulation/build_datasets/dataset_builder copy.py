@@ -269,264 +269,264 @@
 
     #     return weather_regression_data
 
-    def _create_weather_regression_dataframes(self, all_plays_by_hand_combo):
-        """
-        Prepares data for weather-based regression models by calculating game play shares, 
-        handling missing play types, and formatting data for each batter-pitcher handedness 
-        combination (pitbat combo). The function processes and filters the necessary columns 
-        for weather-related features and performs transformations like squaring the temperature.
+    # def _create_weather_regression_dataframes(self, all_plays_by_hand_combo):
+    #     """
+    #     Prepares data for weather-based regression models by calculating game play shares, 
+    #     handling missing play types, and formatting data for each batter-pitcher handedness 
+    #     combination (pitbat combo). The function processes and filters the necessary columns 
+    #     for weather-related features and performs transformations like squaring the temperature.
 
-        Parameters:
-            all_plays_by_hand_combo (dict): A dictionary containing DataFrames of cleaned pitch data, 
-                divided by batter-pitcher handedness combinations. Each DataFrame includes play type, 
-                game details, and weather-related features.
+    #     Parameters:
+    #         all_plays_by_hand_combo (dict): A dictionary containing DataFrames of cleaned pitch data, 
+    #             divided by batter-pitcher handedness combinations. Each DataFrame includes play type, 
+    #             game details, and weather-related features.
 
-        Returns:
-            dict: A dictionary with weather training data, structured by batter-pitcher handedness combinations.
-                Each entry contains a DataFrame of cleaned, transformed data ready for weather regression analysis.
-        """
+    #     Returns:
+    #         dict: A dictionary with weather training data, structured by batter-pitcher handedness combinations.
+    #             Each entry contains a DataFrame of cleaned, transformed data ready for weather regression analysis.
+    #     """
 
-        # Start by filling in all the game play shares
-        games_df = self._insert_game_play_shares(
-            all_plays_by_hand_combo.copy())
-        games_df = self._insert_missing_game_play_shares(games_df)
+    #     # Start by filling in all the game play shares
+    #     games_df = self._insert_game_play_shares(
+    #         all_plays_by_hand_combo.copy())
+    #     games_df = self._insert_missing_game_play_shares(games_df)
 
-        weather_training_data = {x: {} for x in constants.HAND_COMBOS}
-        l = []
+    #     weather_training_data = {x: {} for x in constants.HAND_COMBOS}
+    #     l = []
 
-        # Clean the data to fit what we will need for weather regressions
-        for pitbat_combo in constants.HAND_COMBOS:
-            weather_training_df = games_df[pitbat_combo].copy()
+    #     # Clean the data to fit what we will need for weather regressions
+    #     for pitbat_combo in constants.HAND_COMBOS:
+    #         weather_training_df = games_df[pitbat_combo].copy()
 
-            # Remove any games with a month lower than 5 (May)
-            weather_training_df = weather_training_df[weather_training_df.game_date.apply(
-                lambda x: int(x.split("-")[1])) >= 5]
+    #         # Remove any games with a month lower than 5 (May)
+    #         weather_training_df = weather_training_df[weather_training_df.game_date.apply(
+    #             lambda x: int(x.split("-")[1])) >= 5]
 
-            # Filter to only the columns we will need for the weather regressions
-            weather_training_data[pitbat_combo] = weather_training_df[["game_pk", "play_type", "temprature", "Left to Right", "Right to Left",
-                                                                       "in", "out", "zero", "game_play_share"]]
+    #         # Filter to only the columns we will need for the weather regressions
+    #         weather_training_data[pitbat_combo] = weather_training_df[["game_pk", "play_type", "temprature", "Left to Right", "Right to Left",
+    #                                                                    "in", "out", "zero", "game_play_share"]]
 
-            # Square temprature to use in the regression because I believe it behaves this way
-            weather_training_data[pitbat_combo]["temprature_squared"] = weather_training_data[pitbat_combo]["temprature"].apply(
-                lambda x: x**2)
+    #         # Square temprature to use in the regression because I believe it behaves this way
+    #         weather_training_data[pitbat_combo]["temprature_squared"] = weather_training_data[pitbat_combo]["temprature"].apply(
+    #             lambda x: x**2)
 
-            # Group the weather training data by game and play type to get the game_play_share for each play type for each game
-            weather_training_data[pitbat_combo] = weather_training_data[pitbat_combo].groupby(
-                by=["game_pk", "play_type"]).last().reset_index()
+    #         # Group the weather training data by game and play type to get the game_play_share for each play type for each game
+    #         weather_training_data[pitbat_combo] = weather_training_data[pitbat_combo].groupby(
+    #             by=["game_pk", "play_type"]).last().reset_index()
 
-        clear_output(wait=False)
+    #     clear_output(wait=False)
 
-        return weather_training_data
+    #     return weather_training_data
 
-    ######################################################################################
-    def _compute_weather_regression_coefficients(self, all_plays_by_hand_combo):
-        """
-        Regresses the percent of plays in a game for each play type on the underlying weather conditions 
-        to determine the impact of weather on the distribution of play types. The regression results 
-        will be used to neutralize batting statistics for use in modeling.
+    # ######################################################################################
+    # def _compute_weather_regression_coefficients(self, all_plays_by_hand_combo):
+    #     """
+    #     Regresses the percent of plays in a game for each play type on the underlying weather conditions 
+    #     to determine the impact of weather on the distribution of play types. The regression results 
+    #     will be used to neutralize batting statistics for use in modeling.
 
-        Parameters:
-        --------------
-        all_plays_by_hand_combo (dict): 
-            A dictionary of DataFrames representing the un-neutralized set of plays, 
-            segmented by batter-pitcher handedness combinations. Each DataFrame includes 
-            play types, game details, and weather-related features.
+    #     Parameters:
+    #     --------------
+    #     all_plays_by_hand_combo (dict): 
+    #         A dictionary of DataFrames representing the un-neutralized set of plays, 
+    #         segmented by batter-pitcher handedness combinations. Each DataFrame includes 
+    #         play types, game details, and weather-related features.
 
-        Returns:
-        --------------
-        weather_coefficients (dict):
-            A nested dictionary containing the regression coefficients for each weather 
-            datapoint (temperature, wind direction, and other weather factors) for each 
-            play type within each batter-pitcher handedness combination. The structure is as follows:
+    #     Returns:
+    #     --------------
+    #     weather_coefficients (dict):
+    #         A nested dictionary containing the regression coefficients for each weather 
+    #         datapoint (temperature, wind direction, and other weather factors) for each 
+    #         play type within each batter-pitcher handedness combination. The structure is as follows:
 
-            {
-                "pitbat_combo_1": {
-                    "play_type_1": {
-                        "intercept": <intercept_value>,
-                        "temprature_sq": <coefficient_value>,
-                        "wind_ltr": <coefficient_value>,
-                        "wind_rtl": <coefficient_value>,
-                        "wind_in": <coefficient_value>,
-                        "wind_out": <coefficient_value>
-                    },
-                    ...
-                },
-                "pitbat_combo_2": {
-                    ...
-                },
-                ...
-            }
-        """
+    #         {
+    #             "pitbat_combo_1": {
+    #                 "play_type_1": {
+    #                     "intercept": <intercept_value>,
+    #                     "temprature_sq": <coefficient_value>,
+    #                     "wind_ltr": <coefficient_value>,
+    #                     "wind_rtl": <coefficient_value>,
+    #                     "wind_in": <coefficient_value>,
+    #                     "wind_out": <coefficient_value>
+    #                 },
+    #                 ...
+    #             },
+    #             "pitbat_combo_2": {
+    #                 ...
+    #             },
+    #             ...
+    #         }
+    #     """
 
-        weather_training_data = self._create_weather_regression_dataframes(
-            all_plays_by_hand_combo)
+    #     weather_training_data = self._create_weather_regression_dataframes(
+    #         all_plays_by_hand_combo)
 
-        weather_coefficients = {}
+    #     weather_coefficients = {}
 
-        for pitbat_combo in constants.HAND_COMBOS:
-            weather_coefficients[pitbat_combo] = {}
+    #     for pitbat_combo in constants.HAND_COMBOS:
+    #         weather_coefficients[pitbat_combo] = {}
 
-            # Segment to only the specific play type for each play type before regressing on the weather info
-            for play_type in weather_training_data[pitbat_combo].play_type.unique():
-                regression_df = weather_training_data[pitbat_combo][
-                    weather_training_data[pitbat_combo].play_type == play_type]
+    #         # Segment to only the specific play type for each play type before regressing on the weather info
+    #         for play_type in weather_training_data[pitbat_combo].play_type.unique():
+    #             regression_df = weather_training_data[pitbat_combo][
+    #                 weather_training_data[pitbat_combo].play_type == play_type]
 
-                # Remove outliers for game_share_delta, most of which are caused by low pitbat_combo sample sizes in games. However only do so if there are non 'outliers'. The else
-                # triggers is early in the season there is a play like int. walk that has not happened in a game and all game play shares are 0
-                regression_df = regression_df[(np.abs(stats.zscore(regression_df.game_play_share)) < 3)] if len(
-                    regression_df[(np.abs(stats.zscore(regression_df.game_play_share)) < 3)]) > 0 else regression_df
+    #             # Remove outliers for game_share_delta, most of which are caused by low pitbat_combo sample sizes in games. However only do so if there are non 'outliers'. The else
+    #             # triggers is early in the season there is a play like int. walk that has not happened in a game and all game play shares are 0
+    #             regression_df = regression_df[(np.abs(stats.zscore(regression_df.game_play_share)) < 3)] if len(
+    #                 regression_df[(np.abs(stats.zscore(regression_df.game_play_share)) < 3)]) > 0 else regression_df
 
-                # Create 2 sets of x data, with and without squaring temprature
-                x = regression_df[["temprature", "Left to Right",
-                                   "Right to Left", "in", "out", "zero"]].copy()
-                x_sq = regression_df[[
-                    "temprature_squared", "Left to Right", "Right to Left", "in", "out", "zero"]].copy()
+    #             # Create 2 sets of x data, with and without squaring temprature
+    #             x = regression_df[["temprature", "Left to Right",
+    #                                "Right to Left", "in", "out", "zero"]].copy()
+    #             x_sq = regression_df[[
+    #                 "temprature_squared", "Left to Right", "Right to Left", "in", "out", "zero"]].copy()
 
-                y = regression_df.game_play_share
+    #             y = regression_df.game_play_share
 
-                # Regress the temprature squared dataset on game_share_delta
-                lin_sq = LinearRegression(fit_intercept=True)
-                lin_sq.fit(x_sq, y)
+    #             # Regress the temprature squared dataset on game_share_delta
+    #             lin_sq = LinearRegression(fit_intercept=True)
+    #             lin_sq.fit(x_sq, y)
 
-                weather_coefficients[pitbat_combo][play_type] = {"intercept": lin_sq.intercept_, "temprature_sq": lin_sq.coef_[0], "wind_ltr": lin_sq.coef_[1],
-                                                                 "wind_rtl": lin_sq.coef_[2], "wind_in": lin_sq.coef_[3], "wind_out": lin_sq.coef_[4]}
+    #             weather_coefficients[pitbat_combo][play_type] = {"intercept": lin_sq.intercept_, "temprature_sq": lin_sq.coef_[0], "wind_ltr": lin_sq.coef_[1],
+    #                                                              "wind_rtl": lin_sq.coef_[2], "wind_in": lin_sq.coef_[3], "wind_out": lin_sq.coef_[4]}
 
-        return weather_coefficients
+    #     return weather_coefficients
 
-    def _compute_park_factors(self, all_plays_by_hand_combo):
-        """
-        Calculates the park factor for each ballpark and play type based on the relative frequency 
-        of each play type occurring at the ballpark versus other parks.
+    # def _compute_park_factors(self, all_plays_by_hand_combo):
+    #     """
+    #     Calculates the park factor for each ballpark and play type based on the relative frequency 
+    #     of each play type occurring at the ballpark versus other parks.
 
-        The park factor represents how much more or less likely a play type is to occur at a 
-        specific ballpark compared to the league average.
+    #     The park factor represents how much more or less likely a play type is to occur at a 
+    #     specific ballpark compared to the league average.
 
-        Parameters:
-        --------------
-        all_plays_by_hand_combo (dict): 
-            A dictionary of DataFrames where each key represents a batter-pitcher handedness combination 
-            and the associated DataFrame contains the un-neutralized set of plays. Each DataFrame includes 
-            information about the play type, ballpark, and other relevant game data.
+    #     Parameters:
+    #     --------------
+    #     all_plays_by_hand_combo (dict): 
+    #         A dictionary of DataFrames where each key represents a batter-pitcher handedness combination 
+    #         and the associated DataFrame contains the un-neutralized set of plays. Each DataFrame includes 
+    #         information about the play type, ballpark, and other relevant game data.
 
-        Returns:
-        --------------
-        park_factors_dict (dict): 
-            A nested dictionary containing the park factors for each ballpark and play type. 
-            The structure is as follows:
+    #     Returns:
+    #     --------------
+    #     park_factors_dict (dict): 
+    #         A nested dictionary containing the park factors for each ballpark and play type. 
+    #         The structure is as follows:
 
-            {
-                "pitbat_combo_1": {
-                    "ballpark_1": {
-                        "play_type_1": <park_factor_value>,
-                        "play_type_2": <park_factor_value>,
-                        ...
-                    },
-                    "ballpark_2": {
-                        ...
-                    },
-                    ...
-                },
-                "pitbat_combo_2": {
-                    ...
-                },
-                ...
-            }
+    #         {
+    #             "pitbat_combo_1": {
+    #                 "ballpark_1": {
+    #                     "play_type_1": <park_factor_value>,
+    #                     "play_type_2": <park_factor_value>,
+    #                     ...
+    #                 },
+    #                 "ballpark_2": {
+    #                     ...
+    #                 },
+    #                 ...
+    #             },
+    #             "pitbat_combo_2": {
+    #                 ...
+    #             },
+    #             ...
+    #         }
 
-            If a park factor cannot be computed (e.g., insufficient data), the value will be set to `"n/a"`.
-        """
+    #         If a park factor cannot be computed (e.g., insufficient data), the value will be set to `"n/a"`.
+    #     """
 
-        park_factors_dict = {}
+    #     park_factors_dict = {}
 
-        if self.verbose:
-            print("Calculating Ballpark Factors")
+    #     if self.verbose:
+    #         print("Calculating Ballpark Factors")
 
-        for pitbat_combo in constants.HAND_COMBOS:
-            park_factors_dict[pitbat_combo] = {}
+    #     for pitbat_combo in constants.HAND_COMBOS:
+    #         park_factors_dict[pitbat_combo] = {}
 
-            # For each ballpark, segment all our plays into 2 DataFrames. 1 for all plays at the park and 1 or all plays not at the park
-            for ballpark in all_plays_by_hand_combo[pitbat_combo].ballpark.unique():
-                park_factors_dict[pitbat_combo][ballpark] = {}
-                at_park_df = all_plays_by_hand_combo[pitbat_combo][(
-                    all_plays_by_hand_combo[pitbat_combo].ballpark == ballpark)].copy()
-                not_at_park_df = all_plays_by_hand_combo[pitbat_combo][(
-                    all_plays_by_hand_combo[pitbat_combo].ballpark != ballpark)].copy()
+    #         # For each ballpark, segment all our plays into 2 DataFrames. 1 for all plays at the park and 1 or all plays not at the park
+    #         for ballpark in all_plays_by_hand_combo[pitbat_combo].ballpark.unique():
+    #             park_factors_dict[pitbat_combo][ballpark] = {}
+    #             at_park_df = all_plays_by_hand_combo[pitbat_combo][(
+    #                 all_plays_by_hand_combo[pitbat_combo].ballpark == ballpark)].copy()
+    #             not_at_park_df = all_plays_by_hand_combo[pitbat_combo][(
+    #                 all_plays_by_hand_combo[pitbat_combo].ballpark != ballpark)].copy()
 
-                # For each play type, calculate the percentage it occurs at in the park and out of the park
-                for play_type in all_plays_by_hand_combo[pitbat_combo].play_type.unique():
-                    at_park_rate = len(
-                        at_park_df[at_park_df.play_type == play_type])/len(at_park_df)
-                    not_at_park_rate = len(
-                        not_at_park_df[not_at_park_df.play_type == play_type])/len(not_at_park_df)
+    #             # For each play type, calculate the percentage it occurs at in the park and out of the park
+    #             for play_type in all_plays_by_hand_combo[pitbat_combo].play_type.unique():
+    #                 at_park_rate = len(
+    #                     at_park_df[at_park_df.play_type == play_type])/len(at_park_df)
+    #                 not_at_park_rate = len(
+    #                     not_at_park_df[not_at_park_df.play_type == play_type])/len(not_at_park_df)
 
-                    try:
-                        park_factor = at_park_rate/not_at_park_rate
-                    except:
-                        park_factor = "n/a"
+    #                 try:
+    #                     park_factor = at_park_rate/not_at_park_rate
+    #                 except:
+    #                     park_factor = "n/a"
 
-                    # Insert the park factors into a dictionary
-                    park_factors_dict[pitbat_combo][ballpark][play_type] = park_factor
+    #                 # Insert the park factors into a dictionary
+    #                 park_factors_dict[pitbat_combo][ballpark][play_type] = park_factor
 
-        clear_output(wait=False)
+    #     clear_output(wait=False)
 
-        return park_factors_dict
-    ######################################################################################
+    #     return park_factors_dict
+    # ######################################################################################
 
-    ######################################################################################
-    ######################################################################################
-    def build_neutralization_coefficient_dictionaries(self, all_plays_by_hand_combo):
-        """
-        Builds a dictionary containing the neutralization coefficients for weather conditions and park factors.
-        The function combines weather regression coefficients and park factors to produce a dictionary 
-        that can be used for neutralizing player performance based on external factors such as weather 
-        and ballpark conditions.
+    # ######################################################################################
+    # ######################################################################################
+    # def build_neutralization_coefficient_dictionaries(self, all_plays_by_hand_combo):
+    #     """
+    #     Builds a dictionary containing the neutralization coefficients for weather conditions and park factors.
+    #     The function combines weather regression coefficients and park factors to produce a dictionary 
+    #     that can be used for neutralizing player performance based on external factors such as weather 
+    #     and ballpark conditions.
 
-        Parameters:
-        --------------
-        all_plays_by_hand_combo (dict): 
-            A dictionary of DataFrames where each key represents a batter-pitcher handedness combination 
-            and the associated DataFrame contains the un-neutralized set of plays. Each DataFrame includes 
-            information about the play type, ballpark, weather conditions, and other relevant game data.
+    #     Parameters:
+    #     --------------
+    #     all_plays_by_hand_combo (dict): 
+    #         A dictionary of DataFrames where each key represents a batter-pitcher handedness combination 
+    #         and the associated DataFrame contains the un-neutralized set of plays. Each DataFrame includes 
+    #         information about the play type, ballpark, weather conditions, and other relevant game data.
 
-        Returns:
-        --------------
-        dict: 
-            A dictionary containing two nested dictionaries:
+    #     Returns:
+    #     --------------
+    #     dict: 
+    #         A dictionary containing two nested dictionaries:
 
-            - "weather_coefficients": Contains the regression coefficients for weather-related factors
-            (e.g., temperature, wind direction) affecting play type distributions for each batter-pitcher combo.
+    #         - "weather_coefficients": Contains the regression coefficients for weather-related factors
+    #         (e.g., temperature, wind direction) affecting play type distributions for each batter-pitcher combo.
 
-            - "park_factors": Contains the park factors for each ballpark and play type, indicating how much 
-            more or less likely a play type is to occur in a specific ballpark compared to others.
+    #         - "park_factors": Contains the park factors for each ballpark and play type, indicating how much 
+    #         more or less likely a play type is to occur in a specific ballpark compared to others.
 
-            Example structure:
-            {
-                "weather_coefficients": {
-                    "pitbat_combo_1": {
-                        "play_type_1": {"intercept": <value>, "temprature_sq": <value>, ...},
-                        "play_type_2": {...},
-                        ...
-                    },
-                    "pitbat_combo_2": {...},
-                    ...
-                },
-                "park_factors": {
-                    "pitbat_combo_1": {
-                        "ballpark_1": {"play_type_1": <park_factor_value>, ...},
-                        "ballpark_2": {...},
-                        ...
-                    },
-                    "pitbat_combo_2": {...},
-                    ...
-                }
-            }
-        """
-        weather_coefficients = self._compute_weather_regression_coefficients(
-            all_plays_by_hand_combo)
-        park_factors = self._compute_park_factors(all_plays_by_hand_combo)
+    #         Example structure:
+    #         {
+    #             "weather_coefficients": {
+    #                 "pitbat_combo_1": {
+    #                     "play_type_1": {"intercept": <value>, "temprature_sq": <value>, ...},
+    #                     "play_type_2": {...},
+    #                     ...
+    #                 },
+    #                 "pitbat_combo_2": {...},
+    #                 ...
+    #             },
+    #             "park_factors": {
+    #                 "pitbat_combo_1": {
+    #                     "ballpark_1": {"play_type_1": <park_factor_value>, ...},
+    #                     "ballpark_2": {...},
+    #                     ...
+    #                 },
+    #                 "pitbat_combo_2": {...},
+    #                 ...
+    #             }
+    #         }
+    #     """
+    #     weather_coefficients = self._compute_weather_regression_coefficients(
+    #         all_plays_by_hand_combo)
+    #     park_factors = self._compute_park_factors(all_plays_by_hand_combo)
 
-        return {"weather_coefficients": weather_coefficients, "park_factors": park_factors}
-    ######################################################################################
-    ######################################################################################
+    #     return {"weather_coefficients": weather_coefficients, "park_factors": park_factors}
+    # ######################################################################################
+    # ######################################################################################
 
     ############################## NEUTRALIZE ALL DATA #############################################
 
